@@ -2,9 +2,13 @@
 // Renders horizontal and vertical grid lines as a line list.
 
 struct Uniforms {
+    price_scale: f32,
+    price_offset: f32,
+    time_scale: f32,
+    time_offset: f32,
+    candle_width: f32,
     viewport_width: f32,
     viewport_height: f32,
-    _padding: vec2<f32>,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;

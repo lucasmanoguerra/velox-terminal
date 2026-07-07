@@ -1,7 +1,6 @@
 //! Chart renderer — sends candle/indicator geometry to GPU.
 
 use std::mem;
-use std::num::NonZeroU64;
 use wgpu;
 use bytemuck::{Pod, Zeroable};
 use velox_core::Candle;
@@ -124,7 +123,7 @@ impl ChartRenderer {
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(mem::size_of::<ChartUniforms>() as u64),
+                            min_binding_size: None,
                         },
                         count: None,
                     },
@@ -152,7 +151,9 @@ impl ChartRenderer {
         // ── Buffers ───────────────────────────────────────────────
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("chart_uniforms"),
-            size: mem::size_of::<ChartUniforms>() as u64,
+            // 256 bytes accommodates the largest uniform struct across all shaders
+            // (candle/grid/volume: 28 bytes; line overlays: ~48 bytes with vec3 alignment)
+            size: 256,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });

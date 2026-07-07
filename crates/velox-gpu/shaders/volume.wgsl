@@ -9,8 +9,6 @@ struct Uniforms {
     candle_width: f32,
     viewport_width: f32,
     viewport_height: f32,
-    volume_height: f32,   // fraction of viewport for volume bars (0.2 = 20%)
-    max_volume: f32,       // maximum volume for scaling
 }
 
 struct VolumeData {
@@ -41,13 +39,12 @@ fn vs_volume(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) ins
     let x_center = data_to_screen_x(vol.timestamp);
     let half_w = uniforms.candle_width * 0.4; // slightly narrower than candles
 
-    // Volume area is at the bottom fraction of the viewport
+    // Volume area is at the bottom 20% of the viewport
     let volume_area_bottom = 0.0;
-    let volume_area_height = uniforms.viewport_height * uniforms.volume_height;
+    let volume_area_height = uniforms.viewport_height * 0.2;
 
-    // Scale volume to fit the volume area
-    let norm_volume = vol.volume / max(uniforms.max_volume, 0.0001);
-    let bar_height = norm_volume * volume_area_height;
+    // Volume data is pre-normalized 0..1 by the CPU; just scale to area height
+    let bar_height = vol.volume * volume_area_height;
 
     // Invert Y so volume grows upward from the bottom
     let bottom_y = volume_area_bottom;
