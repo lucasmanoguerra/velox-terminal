@@ -46,6 +46,32 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-06 — Indicadores MACD/Bollinger/ATR + OMS hardening
+
+**Decision**: Implementar MACD, Bollinger Bands y ATR como indicadores incrementales O(1) con tests. Expandir OMS state machine con 7 nuevas transiciones, reemplazo de órdenes, y 10 tests de edge cases. Agregar property-based tests para OMS (proptest).
+
+**Problema resuelto**: Los indicadores eran stubs sin implementación real. El OMS carecía de soporte para replace, cancel en estados intermedios, y tenía bugs en fills con side incorrecto.
+
+**Key changes**:
+- MACD: 9-period EMA, 26-period EMA, signal line (9-period EMA of difference), histogram
+- Bollinger Bands: SMA ± k*σ con k configurable
+- ATR: Wilder's smoothed ATR sobre True Range
+- 16 tests de indicadores pasando (SMA, EMA, RSI, MACD, Bollinger, ATR)
+- OMS state machine: +7 transiciones (PendingNew→PendingCancel, New→Stopped, New→PendingReplace, PartiallyFilled→Stopped, PendingCancel→New, PendingReplace→PendingCancel, Stopped→Expired)
+- `replace_order()` con validación de precio, cantidad, y guard contra qty < filled
+- 10 nuevos unit tests OMS + 2 proptest properties (fill exact-quantity, no-overfill)
+- Bugfix: `make_fill` usaba siempre Side::Buy — ahora `make_fill_for_order` respeta el side
+- Zero warnings en workspace (fix de campos no usados, imports)
+
+**Files changed**:
+- `crates/velox-indicators/src/macd.rs`, `bollinger.rs`, `atr.rs`
+- `crates/velox-oms/src/order_manager.rs`, `state_machine.rs`, `error.rs`
+- `crates/velox-risk/src/validators.rs`, `circuit_breaker.rs`
+- `crates/velox-md/src/aggregation.rs`
+- `docs/project/ROADMAP.md`, `PROJECT_STATE.md`
+
+---
+
 ## 2026-07-06 — ADRs fundacionales y estructura base
 
 **Decision**: Se crearon 3 ADRs fundacionales (workspace, concurrencia, wgpu) y se completaron los gaps de documentación: FIX_PROTOCOL.md, WEBSOCKET_FEED.md, LICENSING.md.
