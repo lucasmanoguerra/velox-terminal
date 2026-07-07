@@ -210,4 +210,14 @@ impl ChartInteraction {
     pub fn clear_zoom_stack(&mut self) {
         self.zoom_stack.clear();
     }
+
+    /// Number of undo levels available.
+    pub fn zoom_stack_size(&self) -> usize {
+        self.zoom_stack.len()
+    }
+
+    /// Whether a pan drag is in progress.
+    pub fn is_dragging(&self) -> bool {
+        self.is_dragging
+    }
 }

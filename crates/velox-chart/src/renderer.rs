@@ -9,6 +9,7 @@ use velox_gpu::device::GpuDevice;
 use velox_gpu::error::GpuError;
 use velox_gpu::pipeline::RenderPipelineManager;
 use velox_gpu::shaders::ShaderManager;
+use crate::interaction::ChartView;
 use tracing::info;
 
 // ── Data structures matching WGSL shaders ──────────────────────────
@@ -694,6 +695,73 @@ impl ChartRenderer {
     }
 
     // ── Helpers ───────────────────────────────────────────────────
+
+    /// Update all GPU data from application state.
+    ///
+    /// Convenience method that calls `update_candles`, `update_volume`, `update_grid`,
+    /// and `update_uniforms` with data derived from `AppState`.
+    ///
+    /// `phys_width` / `phys_height` are the chart panel dimensions in physical pixels
+    /// (logical pixels × DPI scale factor).
+    pub fn update_from_state(
+        &mut self,
+        candles: &[Candle],
+        view: &ChartView,
+        phys_width: f32,
+        phys_height: f32,
+    ) {
+        // ── Candle & volume data ────────────────────────────────
+        self.update_candles(candles);
+        self.update_volume(candles);
+
+        // ── Grid lines ──────────────────────────────────────────
+        let price_range = view.price_range();
+        let price_step = Self::nice_step(price_range / 10.0);
+        let mut price_levels = Vec::new();
+        let mut p = (view.price_min / price_step).floor() * price_step;
+        while p <= view.price_max {
+            price_levels.push(p as f32);
+            p += price_step;
+        }
+
+        let time_range = view.time_range();
+        let time_step = Self::nice_step(time_range / 8.0).max(1.0);
+        let mut time_levels = Vec::new();
+        let mut t = (view.time_start / time_step).floor() * time_step;
+        while t <= view.time_end {
+            time_levels.push(t as f32);
+            t += time_step;
+        }
+        self.update_grid(&price_levels, &time_levels);
+
+        // ── Uniforms ────────────────────────────────────────────
+        let num_candles = candles.len().max(1) as f32;
+        let uniforms = ChartUniforms {
+            price_scale: phys_height / view.price_range() as f32,
+            price_offset: view.price_min as f32,
+            time_scale: phys_width / view.time_range() as f32,
+            time_offset: view.time_start as f32,
+            candle_width: (phys_width / num_candles) * 0.6,
+            viewport_width: phys_width,
+            viewport_height: phys_height,
+        };
+        self.update_uniforms(&uniforms);
+    }
+
+    /// Compute a "nice" round step value.
+    fn nice_step(step: f64) -> f64 {
+        let mag = 10.0_f64.powf(step.abs().log10().floor());
+        let normalized = step / mag;
+        if normalized < 1.5 {
+            mag
+        } else if normalized < 3.5 {
+            2.0 * mag
+        } else if normalized < 7.5 {
+            5.0 * mag
+        } else {
+            10.0 * mag
+        }
+    }
 
     /// Resize a buffer if it's too small for the required data size.
     fn ensure_buffer_size(buffer: &mut wgpu::Buffer, device: &wgpu::Device, label: &str, required_size: u64) {

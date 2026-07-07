@@ -4,11 +4,9 @@
 //!
 //! Panels: chart, DOM ladder, order entry, watchlist, positions, account.
 
+pub mod app_state;
 pub mod panels;
 pub mod theme;
 
-/// Placeholder for UI implementation.
-/// Full implementation in Phase 4.
-pub fn init() {
-    tracing::info!("velox-ui initialized");
-}
+pub use app_state::AppState;
+pub use panels::PanelManager;

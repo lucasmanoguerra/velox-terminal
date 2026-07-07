@@ -2,17 +2,17 @@
 //!
 //! Binary entry point for the velox-terminal trading platform.
 //!
-//! ## Phases
-//!
-//! 1. Core data structures + OMS/Risk (current)
-//! 2. Broker connectivity (FIX, WebSocket)
-//! 3. Storage engine + backtesting
-//! 4. GPU rendering + UI
-//! 5. Scripting engine
-//! 6. Performance optimization
-//! 7. Security + compliance hardening
+//! Initializes logging, parses CLI args, creates the window + GPU context,
+//! and runs the winit event loop.
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![allow(deprecated)]
+
+mod app;
+mod input;
 
 use clap::Parser;
+use winit::event_loop::EventLoop;
 
 #[derive(Parser, Debug)]
 #[command(name = "velox-terminal")]
@@ -30,17 +30,21 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging
+    // ── Tracing ─────────────────────────────────────────────────
     tracing_subscriber::fmt()
         .with_env_filter(&cli.log_level)
         .init();
 
-    tracing::info!("velox-terminal starting (paper={})", cli.paper);
-    tracing::info!("Phase 1: Core data structures + OMS/Risk ready");
+    tracing::info!("velox-terminal v{} starting", env!("CARGO_PKG_VERSION"));
 
-    // Placeholder: UI loop will go here
-    tracing::info!("velox-terminal initialized successfully");
-    println!("velox-terminal v{}", env!("CARGO_PKG_VERSION"));
+    // ── Event loop ──────────────────────────────────────────────
+    let event_loop = EventLoop::new()?;
+
+    let mut app = app::App::new(&event_loop)?;
+
+    event_loop.run(move |event, elwt| {
+        app.handle_event(event, elwt);
+    })?;
 
     Ok(())
 }
