@@ -81,6 +81,14 @@ en Rust, con renderizado GPU vía wgpu, UI en egui y texto vía glyphon.
 - Mantenimiento de dependencias -> `dependency-maint`
 - Triage de bugs -> `soporte-triage`
 
+## Git Workflow
+
+Después de cada implementación o modificación completada:
+1. Verificar `cargo build --workspace && cargo test --workspace && cargo clippy --workspace --all-targets`
+2. Commit con formato Conventional Commits (ver `docs/AGENTS.md` → Git Workflow)
+3. `git push`
+4. Si es feature o cambio significativo → crear PR a `main`
+
 ## Reglas
 
 1. **Descomponer**: Todo requerimiento grande divídelo en sub-tareas asignables a agentes especializados. Identifica dependencias entre tareas antes de asignarlas.

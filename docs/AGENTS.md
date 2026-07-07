@@ -56,4 +56,81 @@ RETURN f.path, fn.name
 - **Use agents for complex tasks**: When the task requires multi-step analysis across multiple files, delegate to a specialized agent (systems-architect, oms, risk-management, charting-engine, etc.) via the `task` tool.
 - **Document decisions**: Every architectural decision should be recorded as an ADR in `docs/adrs/`.
 
+---
+
+# Git Workflow & Commit Conventions
+
+## Core Rule
+
+**Después de cada implementación, modificación o feature completa, se debe hacer commit y push al repositorio.** No acumular cambios sin versionar.
+
+## Conventional Commits
+
+Usar el formato [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>: <short description>
+
+<optional body explaining what and why, not how>
+```
+
+### Types
+
+| Type | When to use | Example |
+|------|-------------|---------|
+| `feat` | Nueva feature | `feat: add RSI indicator with incremental O(1) update` |
+| `fix` | Bugfix | `fix: prevent overfill in partially filled orders` |
+| `docs` | Documentación | `docs: add FIX protocol architecture doc` |
+| `refactor` | Refactor sin cambio funcional | `refactor: extract order validation from OrderManager` |
+| `test` | Tests | `test: add property-based tests for state machine` |
+| `chore` | Mantenimiento | `chore: update wgpu to v24` |
+| `perf` | Performance | `perf: replace Vec with SegQueue in hot path` |
+| `style` | Formato/estilo | `style: cargo fmt` |
+
+### Anatomy
+
+```
+feat(oms): add bracket order support
+
+- One-Cancels-Other (OCO) pair management
+- Profit target and stop loss as child orders
+- Parent-child order relationship tracking
+
+Closes #42
+```
+
+## Commits Atómicos
+
+- **Un cambio lógico = un commit**. No mezclar formateo con lógica, ni refactors con features.
+- Commits pequeños facilitan code review, bisect y rollback.
+
+## Pull Requests
+
+- Toda feature o fix significativo → PR a `main`
+- CI debe pasar antes del merge (build + lint + test)
+- Al menos 1 approval de reviewer (humano o agente senior)
+
+## Ramas
+
+| Branch | Purpose |
+|--------|---------|
+| `main` | Producción. Siempre estable, CI verde |
+| `develop` | Integración de features |
+| `feat/<name>` | Features nuevas |
+| `fix/<name>` | Bugfixes |
+| `docs/<name>` | Documentación |
+
+## Antes de commitear
+
+1. `cargo build --workspace` — compila?
+2. `cargo test --workspace` — tests pasan?
+3. `cargo clippy --workspace --all-targets` — sin warnings?
+4. `git diff --check` — sin whitespace errors?
+5. Hacer un commit por cambio lógico (si trabajaste en 2 cosas, separar)
+
+## Etiquetado
+
+- Todos los commits deben tener un tipo válido (`feat:`, `fix:`, `docs:`, etc.)
+- El cuerpo debe explicar el **qué** y el **por qué**, no el cómo (el código se explica solo)
+
 <!-- codebase-memory-mcp:end -->
