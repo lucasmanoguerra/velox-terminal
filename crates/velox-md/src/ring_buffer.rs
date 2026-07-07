@@ -1,7 +1,6 @@
 //! Lock-free ring buffer for market data events.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
 use velox_core::Tick;
 use velox_core::Quote;

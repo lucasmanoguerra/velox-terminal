@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use velox_core::CoreError;
 
-use crate::ring_buffer::{RingBuffer, MarketEvent};
+use crate::ring_buffer::RingBuffer;
 
 /// Trait for market data feed implementations.
 pub trait MarketFeed: Send + Sync {

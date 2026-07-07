@@ -4,6 +4,7 @@ use crate::traits::Indicator;
 
 /// Exponential Moving Average.
 pub struct Ema {
+    #[expect(dead_code)]
     period: usize,
     multiplier: f64,
     current: f64,

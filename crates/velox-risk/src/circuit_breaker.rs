@@ -17,7 +17,9 @@ pub enum CircuitBreakerReason {
 #[derive(Debug, Clone)]
 struct SymbolBreaker {
     triggered: bool,
+    #[expect(dead_code)]
     reason: CircuitBreakerReason,
+    #[expect(dead_code)]
     triggered_at: Option<DateTime<Utc>>,
     cooldown_until: Option<DateTime<Utc>>,
 }
@@ -26,6 +28,7 @@ struct SymbolBreaker {
 pub struct CircuitBreaker {
     breakers: Mutex<HashMap<String, SymbolBreaker>>,
     cooldown_secs: i64,
+    #[expect(dead_code)]
     max_consecutive_losses: u32,
 }
 

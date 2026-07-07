@@ -17,7 +17,9 @@ pub enum RiskCheckResult {
 /// Performs all pre-trade risk validations.
 pub struct RiskValidator {
     limits: RiskLimits,
+    #[expect(dead_code)]
     positions: DashMap<String, f64>,       // symbol → current position
+    #[expect(dead_code)]
     daily_pnl: DashMap<String, f64>,       // symbol → daily P&L
     order_timestamps: DashMap<OrderId, chrono::DateTime<chrono::Utc>>,
     circuit_breaker: Option<Arc<crate::circuit_breaker::CircuitBreaker>>,

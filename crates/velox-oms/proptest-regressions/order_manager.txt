@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fd18d33ec22b45862148b597ed7e35235140207e4e1c5ded0efc082ca11e2a9b # shrinks to order = NewOrder { symbol: "ES", side: Buy, order_type: Market, quantity: 16.6698359082282, price: None, stop_price: None, time_in_force: Day, client_order_id: None }, fills = [(1.0, 4500.0), (6.78110009915268, 4500.0), (9.123843437691688, 4500.0)]

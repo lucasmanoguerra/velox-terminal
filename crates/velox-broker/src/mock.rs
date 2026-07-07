@@ -1,7 +1,7 @@
 //! Mock broker for testing and paper trading.
 
 use async_trait::async_trait;
-use velox_core::{NewOrder, Order, OrderId, Position, AccountInfo, Fill, CoreError};
+use velox_core::{NewOrder, OrderId, Position, AccountInfo, CoreError};
 use crate::client::{BrokerClient, BrokerConfig, ConnectionHandle};
 
 /// A simulated broker for paper trading and testing.
@@ -17,7 +17,7 @@ impl MockBroker {
 
 #[async_trait]
 impl BrokerClient for MockBroker {
-    async fn connect(&self, config: BrokerConfig) -> Result<ConnectionHandle, CoreError> {
+    async fn connect(&self, _config: BrokerConfig) -> Result<ConnectionHandle, CoreError> {
         Ok(ConnectionHandle {
             broker: self.name.clone(),
             session_id: "mock-session-001".to_string(),

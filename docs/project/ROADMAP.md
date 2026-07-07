@@ -8,34 +8,37 @@ Hoja de ruta del proyecto basada en el plan de activación progresiva de agentes
 **Objetivo**: Proyecto scaffolded, toolchain listo, equipo de agentes operativo.
 
 - [x] Definición del equipo de 26 agentes en `.opencode/agents/`
-- [x] Estructura de documentación `docs/`
-- [ ] Workspace Cargo con crate layout inicial
-- [ ] Integración con codebase-memory-mcp
-- [ ] CI básico (lint + test + build)
+- [x] Estructura de documentación `docs/` (64 archivos, 17 secciones)
+- [x] Workspace Cargo con crate layout inicial (14 crates)
+- [x] Integración con codebase-memory-mcp (25/26 agentes con MCP references)
+- [x] CI básico (lint + test + build + security audit)
+- [x] GitHub repo público creado y configurado
 
 ---
 
 ## Fase 1: Núcleo Inicial
 **Objetivo**: Arquitectura fundacional definida, datos de mercado diseñados.
 
-- Workspace Cargo con boundaries entre crates
-- Modelo de concurrencia documentado (tokio, crossbeam, threads)
-- Estructuras de tick/quote/OHLCV
-- Pipeline de agregación tick → velas en timeframes múltiples
-- ADRs de arquitectura publicados
+- [x] Workspace Cargo con boundaries entre crates
+- [x] Modelo de concurrencia documentado (tokio, crossbeam, threads) — ADR-002
+- [x] Estructuras de tick/quote/OHLCV — `velox-core/src/market.rs`
+- [x] Pipeline de agregación tick → velas en timeframes múltiples — `velox-md/src/aggregation.rs`
+- [x] ADRs de arquitectura publicados (001, 002, 003)
 
 **Agentes líderes**: `systems-architect`, `product-financiero`, `market-data-arch`
 
 ---
 
-## Fase 2: Motor de Trading
+## Fase 2: Motor de Trading (En Progreso)
 **Objetivo**: Pipeline end-to-end funcional: feed → OMS → Risk → UI.
 
-- Market data feed en tiempo real con ring buffers
-- Máquina de estados de OMS
-- Validaciones de Risk Management
-- Charting engine con wgpu (velas, volumen, overlays)
-- Paneles egui funcionales
+- [ ] Market data feed en tiempo real con ring buffers
+- [x] Máquina de estados de OMS — `velox-oms/src/state_machine.rs`
+- [x] Validaciones de Risk Management — `velox-risk/src/validators.rs`
+- [ ] Charting engine con wgpu (velas, volumen, overlays)
+- [ ] Paneles egui funcionales
+- [ ] Indicadores técnicos completos (MACD, Bollinger, ATR)
+- [ ] Property-based tests para OMS/Risk
 
 **Agentes líderes**: `market-data-feed`, `oms`, `risk-management`, `charting-engine`, `frontend-egui`, `ui-ux-trading`
 
@@ -84,14 +87,14 @@ Hoja de ruta del proyecto basada en el plan de activación progresiva de agentes
 
 ## Timeline Estimado
 
-| Fase | Duración estimada | Dependencias |
-|------|------------------|-------------|
-| Fase 0 | 1-2 días | Ninguna |
-| Fase 1 | 1 semana | Fase 0 |
-| Fase 2 | 2-3 semanas | Fase 1 |
-| Fase 3 | 3-4 semanas | Fase 2 |
-| Fase 4 | 2-3 semanas | Fase 3 |
-| Fase 5 | Continuo | Fase 4 |
+| Fase | Duración estimada | Estado |
+|------|------------------|--------|
+| Fase 0 | 1-2 días | ✅ Completada |
+| Fase 1 | 1 semana | ✅ Completada |
+| Fase 2 | 2-3 semanas | 🔄 En progreso |
+| Fase 3 | 3-4 semanas | ⏳ Pendiente |
+| Fase 4 | 2-3 semanas | ⏳ Pendiente |
+| Fase 5 | Continuo | ⏳ Pendiente |
 
 ---
 
