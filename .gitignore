@@ -1,0 +1,29 @@
+# Rust build artifacts
+target/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# License keys
+license.key
+
+# User config
+config.toml
+
+# Generated files
+*.generated.*

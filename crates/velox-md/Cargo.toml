@@ -1,0 +1,20 @@
+[package]
+name = "velox-md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+velox-core = { path = "../velox-core" }
+crossbeam.workspace = true
+bytemuck.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[lib]
+bench = false

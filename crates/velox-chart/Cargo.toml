@@ -1,0 +1,19 @@
+[package]
+name = "velox-chart"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+velox-core = { path = "../velox-core" }
+velox-md = { path = "../velox-md" }
+velox-indicators = { path = "../velox-indicators" }
+velox-gpu = { path = "../velox-gpu" }
+wgpu.workspace = true
+bytemuck.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true

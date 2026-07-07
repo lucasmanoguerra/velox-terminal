@@ -1,0 +1,19 @@
+[package]
+name = "velox-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+velox-core = { path = "../velox-core" }
+velox-md = { path = "../velox-md" }
+velox-oms = { path = "../velox-oms" }
+velox-chart = { path = "../velox-chart" }
+velox-gpu = { path = "../velox-gpu" }
+egui.workspace = true
+egui-wgpu.workspace = true
+wgpu.workspace = true
+crossbeam.workspace = true
+chrono.workspace = true
+tracing.workspace = true

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "lead",
+  "instructions": ["docs/AGENTS.md", "docs/ai/AI_MEMORY.md", "docs/ai/AI_CONTEXT_LOADING.md", "docs/project/PROJECT_STATE.md", "docs/project/NEXT_ACTIONS.md"],
+
+  "agent": {
+    "lead": {
+      "description": "Orquestador y Tech Lead del equipo de trading. Recibe requerimientos, descompone tareas y delega al especialista correcto.",
+      "mode": "primary",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "systems-architect": {
+      "description": "Decisiones estructurales del workspace Cargo, estrategia de concurrencia, boundaries entre crates, toolchain de Rust.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "product-financiero": {
+      "description": "Define features del MVP, prioriza backlog, especifica tipos de orden, vistas y UX desde la perspectiva del trader profesional.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "market-data-arch": {
+      "description": "Diseño de estructuras de datos para tick data, agregación OHLCV, esquemas de serialización zero-copy.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "broker-integration": {
+      "description": "Conectores a brokers/exchanges vía FIX, WebSocket y REST con reconexión resiliente e idempotencia.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "market-data-feed": {
+      "description": "Procesamiento de streams en tiempo real, sync de timestamps, buffering lock-free de baja latencia.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "time-series-storage": {
+      "description": "Almacenamiento histórico de tick data y OHLCV para backtesting, compresión, particionado y durabilidad.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "oms": {
+      "description": "Lógica de envío/cancelación/modificación de órdenes, máquina de estados explícita, fills parciales e idempotencia.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": { "edit": "allow", "bash": "ask" }
+    },
+    "risk-management": {
+      "description": "Validaciones pre-trade, límites de exposición, circuit breakers, fail-safe en todas las rutas de dinero real.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": { "edit": "allow", "bash": "ask" }
+    },
+    "scripting-engine": {
+      "description": "API/lenguaje para estrategias de usuario (Lua embebido o DSL propio), sandboxing y límites de recursos.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "backtesting": {
+      "description": "Motor de simulación histórica con reutilización de lógica en vivo, slippage, comisiones y métricas de performance.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "tech-indicators": {
+      "description": "Librería de indicadores técnicos con cálculo incremental O(1) y modo batch. SMA, RSI, MACD, Volume Profile, etc.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "charting-engine": {
+      "description": "Renderizado GPU vía wgpu de velas, líneas, volumen e indicadores overlay. Geometría instanciada, zoom/pan en shader WGSL.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "ui-ux-trading": {
+      "description": "Diseño de paneles dockables, DOM ladder, order entry, hotkeys — UX específico de terminales de trading profesionales.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "frontend-egui": {
+      "description": "Implementación en egui de paneles de trading, integración con wgpu, estado derivado del modelo, sin duplicación.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "cross-platform-build": {
+      "description": "Compilación cruzada Windows/macOS/Linux, empaquetado nativo, firma de código, instaladores por plataforma.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "qa-financiero": {
+      "description": "Testing de OMS/Risk/P&L, property-based testing con proptest, casos edge de mercado, cobertura exhaustiva.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": { "edit": "allow", "bash": "ask" }
+    },
+    "performance": {
+      "description": "Profiling de latencia end-to-end, benchmarks con criterion, integración Tracy, optimización de memory footprint.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "seguridad": {
+      "description": "Encriptación de credenciales, keyring nativo del SO, cargo-audit, revisión de bloques unsafe en Rust.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "compliance": {
+      "description": "Requisitos regulatorios (MiFID II, SEC), logs de auditoría inmutables, políticas de retención de datos.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "devops": {
+      "description": "Pipelines CI/CD multiplataforma, compilación cruzada, matrices de build por SO, caching de dependencias Cargo.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "release-management": {
+      "description": "Versionado semántico, changelogs para usuarios finales y técnicos, estrategia de rollout canary y rollback.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "licensing": {
+      "description": "Sistema de licencias con suscripción/trial/activación, protección sin bloquear sesiones activas de trading.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "sre-observability": {
+      "description": "Instrumentación con tracing, crash reporting con Sentry, dashboards de salud de conexión y alertas.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "dependency-maint": {
+      "description": "Monitoreo de actualizaciones de crates, seguimiento de cambios en APIs de brokers, priorización de seguridad.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    "soporte-triage": {
+      "description": "Clasificación de bugs por severidad, reproducción con mínimo caso posible, detección de patrones sistémicos.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": { "edit": "deny", "bash": "ask" }
+    }
+  }
+}

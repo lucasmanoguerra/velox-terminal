@@ -1,0 +1,17 @@
+[package]
+name = "velox-risk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+velox-core = { path = "../velox-core" }
+velox-oms = { path = "../velox-oms" }
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "velox-backtest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+velox-core = { path = "../velox-core" }
+velox-md = { path = "../velox-md" }
+velox-oms = { path = "../velox-oms" }
+velox-risk = { path = "../velox-risk" }
+velox-indicators = { path = "../velox-indicators" }
+chrono.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true

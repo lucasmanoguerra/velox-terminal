@@ -1,0 +1,30 @@
+[package]
+name = "velox-terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+velox-core = { path = "../velox-core" }
+velox-md = { path = "../velox-md" }
+velox-indicators = { path = "../velox-indicators" }
+velox-oms = { path = "../velox-oms" }
+velox-risk = { path = "../velox-risk" }
+velox-broker = { path = "../velox-broker" }
+velox-broker-fix = { path = "../velox-broker-fix" }
+velox-storage = { path = "../velox-storage" }
+velox-backtest = { path = "../velox-backtest" }
+velox-scripting = { path = "../velox-scripting" }
+velox-gpu = { path = "../velox-gpu" }
+velox-chart = { path = "../velox-chart" }
+velox-ui = { path = "../velox-ui" }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+clap = { version = "4", features = ["derive"] }
+
+[[bin]]
+name = "velox-terminal"
+path = "src/main.rs"

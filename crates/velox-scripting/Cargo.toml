@@ -1,0 +1,20 @@
+[package]
+name = "velox-scripting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+velox-core = { path = "../velox-core" }
+velox-indicators = { path = "../velox-indicators" }
+mlua = { version = "0.10", features = ["lua54", "vendored"], optional = true }
+thiserror.workspace = true
+tracing.workspace = true
+
+[features]
+default = ["lua"]
+lua = ["mlua"]
+
+[dev-dependencies]
+proptest.workspace = true
