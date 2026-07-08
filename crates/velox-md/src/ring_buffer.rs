@@ -114,10 +114,10 @@ mod tests {
             timestamp: Utc::now(),
             conditions: 0,
         };
-        assert!(buf.push(MarketEvent::Tick(tick.clone())));
-        assert!(buf.push(MarketEvent::Tick(tick.clone())));
-        assert!(buf.push(MarketEvent::Tick(tick.clone())));
-        assert!(buf.push(MarketEvent::Tick(tick.clone())));
-        assert!(!buf.push(MarketEvent::Tick(tick.clone()))); // 5th should fail (buffer full)
+        assert!(buf.push(MarketEvent::Tick(tick)));
+        assert!(buf.push(MarketEvent::Tick(tick)));
+        assert!(buf.push(MarketEvent::Tick(tick)));
+        assert!(buf.push(MarketEvent::Tick(tick)));
+        assert!(!buf.push(MarketEvent::Tick(tick))); // 5th should fail (buffer full)
     }
 }

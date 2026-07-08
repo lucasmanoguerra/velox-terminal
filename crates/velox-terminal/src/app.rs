@@ -156,10 +156,11 @@ impl App {
             (surface, config)
         };
 
-        // ── Market Data Pipeline ────────────────────────────────────
+        // ── Market Data Pipeline (1m, 5m, 1h) ──────────────────────
+        let timeframes: &[i64] = &[60, 300, 3600];
         let ring = Arc::new(RingBuffer::new(4096));
-        let (pipeline, candle_rx) = MarketDataPipeline::new(ring.clone(), &[60]); // 1-minute candles
-        let mut state = AppState::empty();
+        let (pipeline, candle_rx) = MarketDataPipeline::new(ring.clone(), timeframes);
+        let mut state = AppState::empty(timeframes);
         state.set_candle_receiver(candle_rx);
 
         // ── Chart Renderer ──────────────────────────────────────────

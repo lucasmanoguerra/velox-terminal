@@ -36,7 +36,7 @@ impl PanelManager {
                     ui.heading("velox-terminal");
                     ui.separator();
 
-                    // Show latest price info
+                    // ── Price info ────────────────────────────────
                     if let Some(last) = state.candles.last() {
                         let dir = if last.is_bullish() { "▲" } else { "▼" };
                         ui.label(format!(
@@ -47,20 +47,31 @@ impl PanelManager {
                         ui.label("Waiting for data...");
                     }
 
-                    // Connection status indicator
+                    // ── Connection indicator ──────────────────────
                     if state.feed_connected {
                         ui.label("● Live");
                     } else {
                         ui.label("○ Offline");
                     }
 
+                    ui.separator();
+
+                    // ── Timeframe selector ────────────────────────
+                    for &(tf, ref label) in &state.timeframe_labels() {
+                        let selected = tf == state.selected_timeframe;
+                        if ui.selectable_label(selected, label.as_str()).clicked() {
+                            state.set_timeframe(tf);
+                        }
+                    }
+
+                    // ── Right side ────────────────────────────────
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Reset View").clicked() {
-                            state.chart_interaction.reset_view(&state.candles);
+                            state.reset_view();
                             state.needs_redraw = true;
                         }
                         ui.label(format!(
-                            "Frame {} | Ticks: {} | Candles: {}",
+                            "Frame {} | T:{} C:{}",
                             state.frame_count,
                             state.ticks_processed,
                             state.candles_produced,
@@ -131,7 +142,8 @@ impl PanelManager {
 
             // Show crosshair-style info at bottom-left of chart
             let info = format!(
-                "Candles: {} | Zoom stack: {}",
+                "{} · Candles: {} | Zoom stack: {}",
+                state.timeframe_label(),
                 state.candles.len(),
                 state.chart_interaction.zoom_stack_size(),
             );
@@ -180,6 +192,8 @@ impl PanelManager {
                     }
                     ui.separator();
                     ui.label("Paper Trading");
+                    ui.separator();
+                    ui.label(state.timeframe_label());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(format!("{} · Live Feed", state.symbol));
                     });
