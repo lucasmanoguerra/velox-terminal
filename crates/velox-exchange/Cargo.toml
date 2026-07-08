@@ -1,0 +1,29 @@
+[package]
+name = "velox-exchange"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Exchange connectors: WebSocket, REST, FIX for crypto and traditional brokers"
+
+[dependencies]
+velox-core = { path = "../velox-core" }
+velox-md = { path = "../velox-md" }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "time"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Tracing
+tracing.workspace = true
+chrono.workspace = true
+
+

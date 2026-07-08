@@ -12,6 +12,12 @@ bytemuck.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 
+# Async for channel
+tokio = { workspace = true, features = ["sync"] }
+
+# Tracing
+tracing.workspace = true
+
 [dev-dependencies]
 proptest.workspace = true
 criterion.workspace = true

@@ -19,6 +19,7 @@ velox-scripting = { path = "../velox-scripting" }
 velox-gpu = { path = "../velox-gpu" }
 velox-chart = { path = "../velox-chart" }
 velox-ui = { path = "../velox-ui" }
+velox-exchange = { path = "../velox-exchange" }
 
 # Window + GPU + UI runtime
 winit.workspace = true

@@ -12,6 +12,9 @@ repository = "https://github.com/lucasmanoguerra/velox-terminal"
 authors = ["lucasmanoguerra"]
 
 [workspace.dependencies]
+# WebSocket
+tokio-tungstenite = "0.24"
+futures-util = { version = "0.3", features = ["sink"] }
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 

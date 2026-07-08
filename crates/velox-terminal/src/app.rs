@@ -1,18 +1,32 @@
 //! # App — Main application orchestrator
 //!
-//! Owns the window, GPU resources, chart renderer, egui state, and panel manager.
-//! Runs the winit event loop and dispatches events to the appropriate subsystems.
+//! Owns the window, GPU resources, chart renderer, egui state, panel manager,
+//! market data pipeline, and exchange feed. Runs the winit event loop and
+//! dispatches events to the appropriate subsystems.
+//!
+//! # Data Flow
+//!
+//! ```text
+//! Every frame (AboutToWait → RedrawRequested):
+//!   1. poll_candles() → drains mpsc channel from MarketDataPipeline
+//!   2. panel_manager.show() → builds egui UI, records chart rect
+//!   3. chart_renderer.update_from_state() → uploads new candles to GPU
+//!   4. composite_render() → PASS 1 (chart) + PASS 2 (egui)
+//! ```
 
 #![allow(deprecated)] // TODO: migrate from EventLoop::run → run_app
 
+use std::sync::Arc;
 use std::iter;
 use winit::window::Window;
 use winit::event_loop::ActiveEventLoop;
-use wgpu;
-use egui;
 use velox_gpu::device::GpuDevice;
 use velox_gpu::error::GpuError;
 use velox_chart::renderer::ChartRenderer;
+use velox_exchange::binance::BinanceFeed;
+use velox_exchange::ExchangeFeed;
+use velox_md::ring_buffer::RingBuffer;
+use velox_md::pipeline::MarketDataPipeline;
 use velox_ui::app_state::AppState;
 use velox_ui::panels::PanelManager;
 use velox_ui::theme as ui_theme;
@@ -26,9 +40,9 @@ use crate::input;
 /// 2. egui_wgpu's render() does not store the RenderPass reference — it only issues
 ///    draw calls synchronously and returns.
 /// 3. No paint callbacks are used that could stash the render pass.
-unsafe fn render_egui_with_pass<'a>(
+unsafe fn render_egui_with_pass(
     renderer: &egui_wgpu::Renderer,
-    encoder: &'a mut wgpu::CommandEncoder,
+    encoder: &mut wgpu::CommandEncoder,
     view: &wgpu::TextureView,
     primitives: &[egui::ClippedPrimitive],
     screen_descriptor: &egui_wgpu::ScreenDescriptor,
@@ -56,46 +70,6 @@ unsafe fn render_egui_with_pass<'a>(
     let pass_static: &mut wgpu::RenderPass<'static> =
         unsafe { std::mem::transmute(&mut pass) };
     renderer.render(pass_static, primitives, screen_descriptor);
-}
-
-/// Generates mock OHLCV candle data for development.
-fn generate_mock_candles() -> Vec<velox_core::Candle> {
-    use chrono::{Utc, TimeZone};
-    use velox_core::Candle;
-
-    let mut rng = fastrand::Rng::new();
-    rng.seed(42);
-
-    let start_time = Utc.with_ymd_and_hms(2026, 6, 1, 9, 30, 0).unwrap();
-    let mut price = 50000.0;
-    let mut candles = Vec::with_capacity(200);
-
-    for i in 0..200 {
-        let timestamp = start_time + chrono::Duration::minutes(i as i64 * 5);
-        let move_pct = (rng.f64() - 0.5) * 0.02; // ±1% per candle
-        let open = price;
-        let close = price * (1.0 + move_pct);
-        let high = open.max(close) * (1.0 + rng.f64() * 0.008);
-        let low = open.min(close) * (1.0 - rng.f64() * 0.008);
-        let volume = rng.f64() * 100.0 + 10.0;
-
-        candles.push(Candle {
-            symbol: *b"BTC/USD\0",
-            timestamp,
-            open,
-            high,
-            low,
-            close,
-            volume,
-            timeframe_secs: 300, // 5 minutes
-            trade_count: Some(rng.u64(10..500)),
-            vwap: Some((high + low + close) / 3.0),
-        });
-
-        price = close;
-    }
-
-    candles
 }
 
 /// Main application orchestrator.
@@ -133,12 +107,19 @@ pub struct App {
 
     /// Shared application state.
     pub state: AppState,
+
+    /// Market data pipeline: polls ring buffer → aggregates candles → channel.
+    pub pipeline: MarketDataPipeline,
+
+    /// Exchange feed (WebSocket connection).
+    pub feed: BinanceFeed,
 }
 
 impl App {
     /// Create a new application instance.
     ///
-    /// This blocks on GPU initialization (async) using `pollster`.
+    /// This blocks on GPU initialization (async) using `pollster`,
+    /// and spawns the exchange WebSocket feed on the provided tokio runtime.
     pub fn new(event_loop: &winit::event_loop::EventLoop<()>) -> Result<Self, anyhow::Error> {
         tracing::info!("Initializing velox-terminal...");
 
@@ -175,11 +156,14 @@ impl App {
             (surface, config)
         };
 
+        // ── Market Data Pipeline ────────────────────────────────────
+        let ring = Arc::new(RingBuffer::new(4096));
+        let (pipeline, candle_rx) = MarketDataPipeline::new(ring.clone(), &[60]); // 1-minute candles
+        let mut state = AppState::empty();
+        state.set_candle_receiver(candle_rx);
+
         // ── Chart Renderer ──────────────────────────────────────────
         let mut chart_renderer = ChartRenderer::new(&gpu, surface_config.format)?;
-        let state = AppState::new(generate_mock_candles());
-
-        // Initial data upload to GPU
         {
             let rect = egui::Rect::from_min_size(
                 egui::pos2(0.0, 0.0),
@@ -188,12 +172,22 @@ impl App {
             let scale = window.scale_factor() as f32;
             let phys_w = (rect.width() * scale).max(1.0);
             let phys_h = (rect.height() * scale).max(1.0);
+            // Upload initial empty data to GPU
             chart_renderer.update_from_state(
                 &state.candles,
                 &state.chart_interaction.view,
                 phys_w,
                 phys_h,
             );
+        }
+
+        // ── Exchange Feed ───────────────────────────────────────────
+        let feed = BinanceFeed::new();
+        feed.subscribe("BTC/USDT").ok();
+        if let Err(e) = feed.start(ring) {
+            tracing::warn!("Failed to start Binance feed (will retry): {e}");
+        } else {
+            state.set_feed_connected(true);
         }
 
         // ── egui ────────────────────────────────────────────────────
@@ -230,7 +224,26 @@ impl App {
             egui_renderer,
             panel_manager: PanelManager::new(),
             state,
+            pipeline,
+            feed,
         })
+    }
+
+    /// Poll for new market data. Called every frame before building UI.
+    fn poll_market_data(&mut self) {
+        // 1. Poll the ring buffer → aggregate ticks → get candles
+        let new_candles = self.pipeline.poll();
+
+        // 2. Drain the mpsc channel into AppState
+        let received = self.state.poll_candles();
+
+        // 3. Update pipeline metrics on state
+        self.state.ticks_processed = self.pipeline.ticks_processed();
+        self.state.candles_produced = self.pipeline.candles_produced();
+
+        if received > 0 || new_candles > 0 {
+            self.state.needs_redraw = true;
+        }
     }
 
     /// Handle a winit event.
@@ -272,6 +285,10 @@ impl App {
                 event: winit::event::WindowEvent::CloseRequested,
                 ..
             } => {
+                // Gracefully stop the exchange feed
+                if let Err(e) = self.feed.stop() {
+                    tracing::warn!("Feed stop error: {e}");
+                }
                 elwt.exit();
             }
 
@@ -295,10 +312,18 @@ impl App {
             }
 
             // ── About to wait ──────────────────────────────────
+            // This is the per-frame update hook. We poll market data here
+            // so the next RedrawRequested picks up any new candles.
             winit::event::Event::AboutToWait => {
                 self.state.frame_count += 1;
-                self.state.needs_redraw = true;
-                self.window.request_redraw();
+
+                // Poll market data (non-blocking)
+                self.poll_market_data();
+
+                // Always request redraw when live feed is active
+                if self.state.feed_connected {
+                    self.window.request_redraw();
+                }
             }
 
             _ => {}
@@ -426,13 +451,24 @@ impl App {
             );
         }
 
-        // ── 7. Submit + Present ────────────────────────────────
+        // ── 9. Submit + Present ────────────────────────────────
         queue.submit(iter::once(encoder.finish()));
         frame.present();
 
         self.state.needs_redraw = false;
 
         Ok(())
+    }
+}
+
+/// Safely drop resources that depend on the window.
+impl Drop for App {
+    fn drop(&mut self) {
+        // Stop the exchange feed before tearing down GPU/window
+        if let Err(e) = self.feed.stop() {
+            tracing::warn!("Feed stop on drop: {e}");
+        }
+        // Surface depends on window, App struct ensures window is dropped last.
     }
 }
 

@@ -19,7 +19,7 @@ impl Default for PanelManager {
 impl PanelManager {
     /// Create a new panel manager.
     pub fn new() -> Self {
-        Self::default()
+        Self
     }
 
     /// Build the egui UI for all panels.
@@ -35,18 +35,36 @@ impl PanelManager {
                 egui::menu::bar(ui, |ui| {
                     ui.heading("velox-terminal");
                     ui.separator();
+
+                    // Show latest price info
                     if let Some(last) = state.candles.last() {
+                        let dir = if last.is_bullish() { "▲" } else { "▼" };
                         ui.label(format!(
-                            "O: {:.2}  H: {:.2}  L: {:.2}  C: {:.2}  Vol: {}",
-                            last.open, last.high, last.low, last.close, last.volume
+                            "{dir} {:.2}  O:{:.2} H:{:.2} L:{:.2} V:{:.0}",
+                            last.close, last.open, last.high, last.low, last.volume
                         ));
+                    } else {
+                        ui.label("Waiting for data...");
                     }
+
+                    // Connection status indicator
+                    if state.feed_connected {
+                        ui.label("● Live");
+                    } else {
+                        ui.label("○ Offline");
+                    }
+
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Reset View").clicked() {
                             state.chart_interaction.reset_view(&state.candles);
                             state.needs_redraw = true;
                         }
-                        ui.label(format!("Frame {}", state.frame_count));
+                        ui.label(format!(
+                            "Frame {} | Ticks: {} | Candles: {}",
+                            state.frame_count,
+                            state.ticks_processed,
+                            state.candles_produced,
+                        ));
                     });
                 });
             });
@@ -59,8 +77,33 @@ impl PanelManager {
             .show(ctx, |ui| {
                 ui.heading("Order Entry");
                 ui.separator();
-                ui.label("Symbol: BTC/USD");
+
+                // Symbol selector
+                ui.horizontal(|ui| {
+                    ui.label("Symbol:");
+                    let mut sym = state.symbol.clone();
+                    if ui.text_edit_singleline(&mut sym).changed() {
+                        state.symbol = sym;
+                    }
+                });
+
                 ui.separator();
+
+                // Price display
+                if let Some(last) = state.candles.last() {
+                    ui.horizontal(|ui| {
+                        ui.label("Last:");
+                        if last.is_bullish() {
+                            ui.colored_label(egui::Color32::GREEN, format!("{:.2}", last.close));
+                        } else {
+                            ui.colored_label(egui::Color32::RED, format!("{:.2}", last.close));
+                        }
+                    });
+                }
+
+                ui.separator();
+
+                // Buy/Sell buttons
                 ui.horizontal(|ui| {
                     if ui.button("Buy").clicked() {
                         tracing::info!("Buy clicked");
@@ -112,6 +155,17 @@ impl PanelManager {
                 ui.label("Balance: $100,000.00");
                 ui.label("Equity:  $100,000.00");
                 ui.label("Margin:  $0.00");
+
+                // Live data metrics
+                ui.separator();
+                ui.heading("Feed");
+                if state.feed_connected {
+                    ui.label("● Live");
+                } else {
+                    ui.label("○ Offline");
+                }
+                ui.label(format!("Ticks: {}", state.ticks_processed));
+                ui.label(format!("Candles: {}", state.candles_produced));
             });
 
         // ── Bottom status bar ────────────────────────────────────
@@ -119,11 +173,15 @@ impl PanelManager {
             .min_height(22.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Ready");
+                    if state.feed_connected {
+                        ui.label("● Connected");
+                    } else {
+                        ui.label("○ Disconnected");
+                    }
                     ui.separator();
                     ui.label("Paper Trading");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label("BTC/USD · 1m");
+                        ui.label(format!("{} · Live Feed", state.symbol));
                     });
                 });
             });

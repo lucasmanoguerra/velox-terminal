@@ -219,6 +219,71 @@ ChartRenderer initialized
 
 ---
 
+---
+
+## 2026-07-08 — Real WebSocket market data feed (Binance) + pipeline chart live
+
+**Decision**: Implementar pipeline de market data en vivo: Binance WebSocket → RingBuffer → CandleAggregator → mpsc channel → AppState → ChartRenderer.
+
+**Problema resuelto**: El chart solo mostraba mock data (random walk generado en `generate_mock_candles()`). No había conexión real a ningún exchange.
+
+**Arquitectura**:
+- **Nuevo crate `velox-exchange`**: Contiene el trait `ExchangeFeed` y el conector `BinanceFeed`
+  - `BinanceFeed` se conecta a `wss://stream.binance.com:9443/ws` vía `tokio-tungstenite`
+  - Suscribe a streams `<symbol>@trade` (trades en tiempo real)
+  - Parsea JSON de Binance → `velox_core::Tick` → `MarketEvent::Tick` → `RingBuffer`
+  - Manejo de reconexión: `AtomicBool` running flag + `JoinHandle` para abort
+  - Normalización de símbolos: `BTC-USDT` → `btcusdt`, `ETH/USDT` → `ethusdt`
+  - 5 tests unitarios (stream path, subscribe normalization, duplicates, trade parsing)
+
+- **Nuevo módulo `velox-md::pipeline`**: `MarketDataPipeline`
+  - Consume `RingBuffer` (SPSC consumer, poll-based, no bloqueante)
+  - Alimenta `CandleAggregator` para timeframe 1m (60s)
+  - Envía velas completadas vía `tokio::sync::mpsc::unbounded_channel`
+  - `poll()` → retorna count de nuevas velas. Llamado desde main thread cada frame.
+
+- **`velox-ui::AppState` actualizado**:
+  - `set_candle_receiver(rx)` — conecta el canal de velas
+  - `poll_candles()` — drena el canal, actualiza `self.candles`, autoescala vista en primera vela
+  - Buffer window: mantiene últimas 500 velas (descarta las viejas)
+  - `empty()` constructor para arrancar sin datos mock
+  - Nuevos campos: `symbol`, `ticks_processed`, `candles_produced`, `feed_connected`
+
+- **`velox-terminal::App` cableado**:
+  - `App::new()`: crea `RingBuffer(4096)` → `MarketDataPipeline` → `BinanceFeed` → subscribe BTC/USDT → start
+  - `AboutToWait` hook: `poll_market_data()` corre cada frame (poll ring buffer + drain channel)
+  - `CloseRequested`: `feed.stop()` con abort del JoinHandle
+  - AppState arranca con `AppState::empty()` (sin datos mock)
+
+- **`main.rs`**:
+  - Crea `tokio::runtime::Runtime` al inicio
+  - `runtime.enter()` para que `tokio::spawn()` funcione desde `BinanceFeed::start()`
+  - Runtime se dropea al salir → cancela todas las tareas spawned
+
+**Data flow final**:
+
+```
+Binance WS ──> RingBuffer ──> Pipeline.poll() ──> mpsc channel ──> AppState ──> ChartRenderer
+ (tokio)       (SPSC)         (main thread poll)                    (candles)    (GPU upload)
+```
+
+**Files changed**:
+- `Cargo.toml` (workspace): +tokio-tungstenite, futures-util
+- `crates/velox-exchange/Cargo.toml` + `src/lib.rs` + `src/error.rs` + `src/trait.rs` + `src/binance.rs` (nuevos)
+- `crates/velox-md/Cargo.toml`: +tokio, tracing
+- `crates/velox-md/src/lib.rs`: +pipeline module
+- `crates/velox-md/src/pipeline.rs` (nuevo — MarketDataPipeline)
+- `crates/velox-ui/Cargo.toml`: +tokio
+- `crates/velox-ui/src/app_state.rs`: rewrite — +channel receiver, poll_candles(), empty()
+- `crates/velox-ui/src/panels.rs`: +live indicators (price, ticks, candles, connection status)
+- `crates/velox-terminal/Cargo.toml`: +velox-exchange
+- `crates/velox-terminal/src/app.rs`: rewrite — +pipeline, feed, poll_market_data
+- `crates/velox-terminal/src/main.rs`: +tokio runtime, enter guard
+
+**Tests**: 47 pasando (+5 exchange, +1 pipeline), 0 fallos, 0 warnings nuevos
+
+---
+
 ### Technical Constraints
 
 1. **Perfiles de compilación**: OMS y Risk Management deben compilarse con perfil `ReleaseSafe`. El resto puede usar `ReleaseFast`.
