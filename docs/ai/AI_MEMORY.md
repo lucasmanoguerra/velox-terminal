@@ -187,6 +187,38 @@ Además, `grid.wgsl` tenía un `Uniforms` con solo `viewport_width/height/paddin
 
 ---
 
+## 2026-07-08 — Fix: grid pipeline layout separado (vertex vs storage bindings)
+
+**Decision**: Separar el grid pipeline en su propio `BindGroupLayout` y `PipelineLayout` (solo uniform binding), mientras candle/volume comparten el layout original (uniform + storage). El grid shader recibe datos vía `set_vertex_buffer`, no storage buffers.
+
+**Problema resuelto**: El grid bind group bindeaba su vertex buffer (`VERTEX | COPY_DST`) en binding 1 declarado como `Storage` en el bind group layout compartido. wgpu rechazaba el bind group con:
+```
+Buffer 'grid_vertices' usage flags BufferUsages(COPY_DST | VERTEX) 
+do not contain required usage flags BufferUsages(STORAGE)
+```
+
+**Key changes**:
+- `grid_bind_group_layout`: layout con solo binding 0 (uniform), sin binding 1 (storage)
+- `grid_pipeline_layout`: pipeline layout para grid usando el nuevo bind group layout
+- Grid bind group: solo bindea uniform buffer (ya no el vertex buffer como storage)
+- `update_grid()` recrea bind group con `grid_bind_group_layout` (solo uniform)
+- Candle/volume siguen compartiendo `bind_group_layout` (uniform + storage)
+
+**Resultado**: App arranca limpia — todos los pipelines se crean sin errores de validación wgpu:
+```
+GPU device initialized
+Shader 'candle' compiled
+Shader 'grid' compiled  
+Shader 'volume' compiled
+Shader 'line' compiled
+ChartRenderer initialized
+```
+
+**Files changed**:
+- `crates/velox-chart/src/renderer.rs`
+
+---
+
 ### Technical Constraints
 
 1. **Perfiles de compilación**: OMS y Risk Management deben compilarse con perfil `ReleaseSafe`. El resto puede usar `ReleaseFast`.
@@ -196,3 +228,4 @@ Además, `grid.wgsl` tenía un `Uniforms` con solo `viewport_width/height/paddin
 5. **egui-wgpu `RenderPass<'static>`**: `egui_wgpu::Renderer::render()` requiere `&mut RenderPass<'static>` porque internamente puede entregarlo a paint callbacks. Workaround safe: helper `unsafe fn` con transmute lifetime, siempre que no se usen paint callbacks.
 6. **Dual wgpu en lockfile**: egui-wgpu 0.31 y nuestro código usan ambos wgpu 24.0.5 (misma versión). La `Surface` de wgpu 24 requiere `create_surface_unsafe()` con `SurfaceTargetUnsafe` para obtener lifetime `'static`.
 7. **WGSL Uniforms struct layout**: Todos los shaders que comparten un `BindGroupLayout` deben tener el mismo struct de `Uniforms` (mismos campos, mismo orden, mismo tamaño). Usar `min_binding_size: None` para desactivar validación de tamaño, y crear el uniform buffer suficientemente grande (256 bytes) para cubrir todos los shaders.
+8. **Separar layouts por pipeline tipo**: Pipelines que usan `storage buffers` (candle/volume con instanced rendering) y pipelines que usan `vertex buffers` (grid con vertex input) no pueden compartir el mismo `BindGroupLayout` — el tipo de binding (Storage vs Vertex) está codificado en el layout. Cada pipeline debe tener el layout que coincida con cómo recibe sus datos.
