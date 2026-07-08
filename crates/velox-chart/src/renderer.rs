@@ -80,10 +80,14 @@ pub struct ChartRenderer {
     volume_pipeline: wgpu::RenderPipeline,
     #[expect(dead_code)]
     line_pipeline: wgpu::RenderPipeline,
-    // Pipeline layout (shared across all pipelines that use uniform + storage)
+    // Candle/volume layout (uniform + storage)
     bind_group_layout: wgpu::BindGroupLayout,
     #[expect(dead_code)]
     pipeline_layout: wgpu::PipelineLayout,
+    // Grid-only layout (uniform only — grid uses vertex buffers, not storage)
+    grid_bind_group_layout: wgpu::BindGroupLayout,
+    #[expect(dead_code)]
+    grid_pipeline_layout: wgpu::PipelineLayout,
     // Buffers
     uniform_buffer: wgpu::Buffer,
     candle_buffer: wgpu::Buffer,
@@ -148,6 +152,32 @@ impl ChartRenderer {
                 push_constant_ranges: &[],
             });
 
+        // Grid uses its own layout: uniform only (no storage binding)
+        // The grid shader gets vertex data via set_vertex_buffer, not storage.
+        let grid_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("grid_bind_group_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: BIND_UNIFORMS,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+
+        let grid_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("grid_pipeline_layout"),
+                bind_group_layouts: &[&grid_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
         // ── Buffers ───────────────────────────────────────────────
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("chart_uniforms"),
@@ -203,11 +233,11 @@ impl ChartRenderer {
             )?
         };
 
-        // Grid pipeline
+        // Grid pipeline (uses its own layout: uniform only)
         let grid_pipeline = Self::create_grid_pipeline(
             device,
             &mut pipeline_manager,
-            &pipeline_layout,
+            &grid_pipeline_layout,
             format,
         )?;
 
@@ -244,21 +274,14 @@ impl ChartRenderer {
             Some("volume_bg"),
         );
 
+        // Grid bind group: uniform only (no storage binding — grid uses set_vertex_buffer)
         let grid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("grid_bg"),
-            layout: &bind_group_layout,
+            layout: &grid_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: BIND_UNIFORMS,
                     resource: uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: BIND_STORAGE,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &grid_vertex_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
                 },
             ],
         });
@@ -272,6 +295,8 @@ impl ChartRenderer {
             line_pipeline,
             bind_group_layout,
             pipeline_layout,
+            grid_bind_group_layout,
+            grid_pipeline_layout,
             uniform_buffer,
             candle_buffer,
             volume_buffer,
@@ -624,22 +649,14 @@ impl ChartRenderer {
             bytemuck::cast_slice(&vertices),
         );
 
-        // Rebuild grid bind group
+        // Rebuild grid bind group (uniform only — no storage binding)
         self.grid_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("grid_bg"),
-            layout: &self.bind_group_layout,
+            layout: &self.grid_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: BIND_UNIFORMS,
                     resource: self.uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: BIND_STORAGE,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.grid_vertex_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
                 },
             ],
         });
