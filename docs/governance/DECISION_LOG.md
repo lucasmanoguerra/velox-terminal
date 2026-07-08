@@ -16,6 +16,7 @@ Registro de decisiones del proyecto. Para decisiones arquitectónicas significat
 | 2026-07-06 | ADR-003: wgpu como backend gráfico único con fallback | Código único para 3+ backends, type-safe | charting-engine |
 | 2026-07-06 | Creación de GitHub repo público `velox-terminal` | Distribución open-source, CI/CD, colaboración | lead |
 | 2026-07-06 | Git workflow: Conventional Commits + PRs + CI obligatorio | Profesionalismo, trazabilidad, calidad | lead |
+| 2026-07-08 | ADR-004: Hexagonal (Ports & Adapters) Architecture | Formalizar boundaries crate + separación domain/infra | systems-architect |
 
 ---
 

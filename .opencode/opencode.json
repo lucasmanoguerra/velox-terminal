@@ -1,15 +1,15 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "default_agent": "lead",
-  "instructions": ["docs/AGENTS.md", "docs/ai/AI_MEMORY.md", "docs/ai/AI_CONTEXT_LOADING.md", "docs/project/PROJECT_STATE.md", "docs/project/NEXT_ACTIONS.md"],
+  "instructions": ["docs/AGENTS.md", "docs/ai/AI_MEMORY.md", "docs/ai/AI_CONTEXT_LOADING.md", "docs/project/PROJECT_STATE.md", "docs/project/NEXT_ACTIONS.md", "docs/adrs/004-hexagonal-architecture.md"],
 
   "agent": {
     "lead": {
-      "description": "Orquestador y Tech Lead del equipo de trading. Recibe requerimientos, descompone tareas y delega al especialista correcto.",
+      "description": "Orquestador y Tech Lead. Descompone requerimientos en tareas, delega al especialista, aplica hexagonal + UNIX philosophy.",
       "mode": "primary",
     },
     "systems-architect": {
-      "description": "Decisiones estructurales del workspace Cargo, estrategia de concurrencia, boundaries entre crates, toolchain de Rust.",
+      "description": "Arquitecto hexagonal (Ports & Adapters). Estructura del workspace, boundaries entre domain/core/adapters, concurrencia, toolchain Rust.",
       "mode": "subagent",
     },
     "product-financiero": {
@@ -17,98 +17,98 @@
       "mode": "subagent",
     },
     "market-data-arch": {
-      "description": "Diseño de estructuras de datos para tick data, agregación OHLCV, esquemas de serialización zero-copy.",
+      "description": "Diseño de estructuras de datos para tick data (domain core), agregación OHLCV, esquemas de serialización zero-copy.",
       "mode": "subagent",
     },
     "broker-integration": {
-      "description": "Conectores a brokers/exchanges vía FIX, WebSocket y REST con reconexión resiliente e idempotencia.",
+      "description": "Adaptadores de conectores a brokers/exchanges. Implementa ExchangeFeed y BrokerClient ports vía FIX, WebSocket y REST. Reconexión resiliente.",
       "mode": "subagent",
     },
     "market-data-feed": {
-      "description": "Procesamiento de streams en tiempo real, sync de timestamps, buffering lock-free de baja latencia.",
+      "description": "Adaptador de market data en tiempo real. Procesamiento de streams, buffering lock-free (ring buffer), sincronización de timestamps multi-feed.",
       "mode": "subagent",
     },
     "time-series-storage": {
-      "description": "Almacenamiento histórico de tick data y OHLCV para backtesting, compresión, particionado y durabilidad.",
+      "description": "Adaptador de almacenamiento histórico. Compresión, particionado y durabilidad para tick data y OHLCV, usado por backtesting.",
       "mode": "subagent",
     },
     "oms": {
-      "description": "Lógica de envío/cancelación/modificación de órdenes, máquina de estados explícita, fills parciales e idempotencia.",
+      "description": "Domain core: lógica de envío/cancelación/modificación de órdenes, máquina de estados explícita, fills parciales e idempotencia. Zero I/O.",
       "mode": "subagent",
       "permission": { "edit": "allow", "bash": "ask" }
     },
     "risk-management": {
-      "description": "Validaciones pre-trade, límites de exposición, circuit breakers, fail-safe en todas las rutas de dinero real.",
+      "description": "Domain core: validaciones pre-trade, límites de exposición, circuit breakers, fail-safe. Pure domain logic, zero infrastructure deps.",
       "mode": "subagent",
       "permission": { "edit": "allow", "bash": "ask" }
     },
     "scripting-engine": {
-      "description": "API/lenguaje para estrategias de usuario (Lua embebido o DSL propio), sandboxing y límites de recursos.",
+      "description": "Adaptador de scripting: API/lenguaje para estrategias de usuario (Lua embebido o DSL), sandboxing y límites de recursos.",
       "mode": "subagent",
     },
     "backtesting": {
-      "description": "Motor de simulación histórica con reutilización de lógica en vivo, slippage, comisiones y métricas de performance.",
+      "description": "Domain core: motor de simulación histórica con reutilización de lógica en vivo, slippage configurable, métricas de performance (Sharpe, drawdown).",
       "mode": "subagent",
     },
     "tech-indicators": {
-      "description": "Librería de indicadores técnicos con cálculo incremental O(1) y modo batch. SMA, RSI, MACD, Volume Profile, etc.",
+      "description": "Domain core: librería de indicadores técnicos con cálculo incremental O(1) y modo batch. SMA, RSI, MACD, Volume Profile, etc.",
       "mode": "subagent",
     },
     "charting-engine": {
-      "description": "Renderizado GPU vía wgpu de velas, líneas, volumen e indicadores overlay. Geometría instanciada, zoom/pan en shader WGSL.",
+      "description": "Adaptador GPU: renderizado vía wgpu de velas, líneas, volumen e indicadores overlay. Geometría instanciada, zoom/pan en shader WGSL.",
       "mode": "subagent",
     },
     "ui-ux-trading": {
-      "description": "Diseño de paneles dockables, DOM ladder, order entry, hotkeys — UX específico de terminales de trading profesionales.",
+      "description": "Diseño de UI/UX para terminales de trading. Paneles dockables, DOM ladder, order entry, hotkeys configurables.",
       "mode": "subagent",
     },
     "frontend-egui": {
-      "description": "Implementación en egui de paneles de trading, integración con wgpu, estado derivado del modelo, sin duplicación.",
+      "description": "Adaptador UI: implementación en egui de paneles de trading sobre wgpu, estado derivado del modelo, responsividad.",
       "mode": "subagent",
     },
     "cross-platform-build": {
-      "description": "Compilación cruzada Windows/macOS/Linux, empaquetado nativo, firma de código, instaladores por plataforma.",
+      "description": "Build system: compilación cruzada Windows/macOS/Linux, empaquetado nativo (MSI/DMG/AppImage), firma de código.",
       "mode": "subagent",
     },
     "qa-financiero": {
-      "description": "Testing de OMS/Risk/P&L, property-based testing con proptest, casos edge de mercado, cobertura exhaustiva.",
+      "description": "QA de dominio financiero. Testing de OMS/Risk/P&L, property-based testing con proptest, casos edge de mercado, cobertura obligatoria pre-merge.",
       "mode": "subagent",
       "permission": { "edit": "allow", "bash": "ask" }
     },
     "performance": {
-      "description": "Profiling de latencia end-to-end, benchmarks con criterion, integración Tracy, optimización de memory footprint.",
+      "description": "Performance engineering. Profiling de latencia end-to-end, benchmarks con criterion, integración Tracy, optimización de memory footprint.",
       "mode": "subagent",
     },
     "seguridad": {
-      "description": "Encriptación de credenciales, keyring nativo del SO, cargo-audit, revisión de bloques unsafe en Rust.",
+      "description": "Seguridad. Encriptación de credenciales con keyring nativo del SO, cargo-audit de dependencias, revisión de bloques unsafe en Rust.",
       "mode": "subagent",
     },
     "compliance": {
-      "description": "Requisitos regulatorios (MiFID II, SEC), logs de auditoría inmutables, políticas de retención de datos.",
+      "description": "Compliance financiero. Identificación de requisitos regulatorios (MiFID II, SEC), logs de auditoría inmutables, políticas de retención de datos.",
       "mode": "subagent",
     },
     "devops": {
-      "description": "Pipelines CI/CD multiplataforma, compilación cruzada, matrices de build por SO, caching de dependencias Cargo.",
+      "description": "DevOps / CI-CD. Pipelines multiplataforma (GitHub Actions), compilación cruzada, matrices de build por SO, caching Cargo, operaciones con gh CLI.",
       "mode": "subagent",
     },
     "release-management": {
-      "description": "Versionado semántico, changelogs para usuarios finales y técnicos, estrategia de rollout canary y rollback.",
+      "description": "Release management. Versionado semántico (SemVer), changelogs duales (usuario/técnico), estrategia de rollout y rollback.",
       "mode": "subagent",
     },
     "licensing": {
-      "description": "Sistema de licencias con suscripción/trial/activación, protección sin bloquear sesiones activas de trading.",
+      "description": "Licenciamiento y monetización. Sistema de licencias con suscripción, trial y activación por hardware.",
       "mode": "subagent",
     },
     "sre-observability": {
-      "description": "Instrumentación con tracing, crash reporting con Sentry, dashboards de salud de conexión y alertas.",
+      "description": "SRE y observabilidad. Instrumentación con tracing, crash reporting con Sentry, dashboards de salud de conexiones, alertas automáticas.",
       "mode": "subagent",
     },
     "dependency-maint": {
-      "description": "Monitoreo de actualizaciones de crates, seguimiento de cambios en APIs de brokers, priorización de seguridad.",
+      "description": "Mantenimiento de dependencias e integraciones. Monitoreo de actualizaciones de crates Rust, cambios en APIs de brokers, priorización de seguridad.",
       "mode": "subagent",
     },
     "soporte-triage": {
-      "description": "Clasificación de bugs por severidad, reproducción con mínimo caso posible, detección de patrones sistémicos.",
+      "description": "Soporte técnico y triage de bugs. Clasificación por severidad, reproducción con mínimo caso posible, detección de patrones sistémicos.",
       "mode": "subagent",
       "permission": { "edit": "deny", "bash": "ask" }
     }

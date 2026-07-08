@@ -15,6 +15,10 @@ Criterios que todo cambio debe cumplir antes de considerarse terminado.
 - [ ] No `unwrap()` or `expect()` in new code (use `Result` or proper error handling)
 - [ ] New public items have doc comments
 - [ ] Error paths are handled (no silent failures)
+- [ ] **Hexagonal compliance**: Domain crates don't import infrastructure (tokio, wgpu, egui, crossbeam)
+- [ ] **File size**: New files < 200 lines (excluding imports and module doc comments)
+- [ ] **Hexagonal exceptions**: Any hot-path exemption documented with `// HEXAGONAL-EXEMPT: <reason>`
+- [ ] **Conventional Commit**: `git log --oneline -1` matches `<type>(<scope>): <description>` format
 
 ## For OMS / Risk / P&L Changes
 

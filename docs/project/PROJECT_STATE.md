@@ -4,36 +4,38 @@ Current state of the velox-terminal project.
 
 ---
 
-## Completed (Fases 0-1)
+## Completed (Domain Core + Adapters base)
 
-- **Agent team setup**: 26 OpenCode agents with routing + MCP integration
-- **Workspace**: 14 crates with bounded contexts, profiles (ReleaseSafe para OMS/Risk)
-- **CI/CD**: GitHub Actions (lint, test, build, security audit, cross-platform)
-- **Repository**: GitHub público `lucasmanoguerra/velox-terminal`
-- **Documentation**: 72 markdown files across 17 sections + progressive-disclosure
-- **ADRs**: 3 registrados (workspace, concurrency, wgpu)
+- **Agent team setup**: 26 OpenCode agents with routing, hexagonal + UNIX philosophy, MCP integration
+- **Workspace**: 15 crates organized in hexagonal layers (domain / ports / adapters / application)
+- **CI/CD**: GitHub Actions (lint, test, build, security audit, cross-platform) + gh CLI workflow
+- **Repository**: GitHub público `lucasmanoguerra/velox-terminal` con community files
+- **Documentation**: 80+ files across 17 sections + progressive-disclosure + ADRs
+- **ADRs**: 4 registrados (workspace, concurrency, wgpu rendering, hexagonal architecture)
 - **Domain primitives**: Order, Tick, Quote, Candle, OrderState machine
 - **Market data**: Ring buffer lock-free, aggregation tick→OHLCV multi-timeframe
-- **Indicators**: SMA, EMA, RSI incrementales O(1)
-- **OMS**: State machine validation, order manager, fill management
+- **Indicators**: SMA, EMA, RSI, MACD, Bollinger, ATR incrementales O(1)
+- **OMS**: State machine validation, order manager, fill management, property-based tests
 - **Risk**: Validators, position limits, circuit breaker
-- **Broker**: BrokerClient trait + MockBroker
+- **Broker**: BrokerClient trait (port) + MockBroker
+- **Exchange adapter**: Binance WebSocket feed (trades) con auto-reconnect (backoff + jitter)
+- **Charting**: wgpu renderer, WGSL shaders, instanced geometry, zoom/pan
+- **UI**: egui panels over wgpu, dark theme, order entry, positions, multi-timeframe selector
 - **Connectivity docs**: FIX protocol, WebSocket feed, reconnection strategy
-- **Licensing**: 3-tier model (Community/Pro/Enterprise)
+- **Licensing**: 3-tier model (Community/Pro/Enterprise) — design doc
+- **Community**: CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, issue/PR templates
 
-## In Progress (Fase 2: Motor de Trading)
+## In Progress (Phase 2-3: Adapters)
 
-- Implementation completa de indicadores (MACD, Bollinger, ATR)
-- Property-based tests para OMS/Risk
-- Harden order manager (replace, edge cases)
+- Conectores a más exchanges (BingX, Bybit, Kraken)
+- Order book depth stream
+- Indicadores overlay en chart (pipeline GPU para líneas)
+- OMS conectado con UI (botón Place Order → orden real)
+- Backtesting con slippage
 
 ## Next Up
 
-Per `NEXT_ACTIONS.md`:
-- Market data feed real (WebSocket)
-- Charting engine con wgpu
-- Paneles egui funcionales
-- Conector FIX/WebSocket para broker
+Ver `NEXT_ACTIONS.md` para la cola priorizada.
 
 ## Known Blockers
 
@@ -41,4 +43,4 @@ Per `NEXT_ACTIONS.md`:
 
 ---
 
-_Last updated: 2026-07-06_
+_Last updated: 2026-07-08_

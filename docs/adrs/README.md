@@ -16,6 +16,7 @@ Architecture Decision Records.
 | 001 | Workspace Crate Structure | Accepted | 2026-07-06 |
 | 002 | Concurrency Model | Accepted | 2026-07-06 |
 | 003 | wgpu Rendering Pipeline | Accepted | 2026-07-06 |
+| 004 | Hexagonal (Ports & Adapters) Architecture | Accepted | 2026-07-08 |
 
 ## Recommended Loading Order
 
