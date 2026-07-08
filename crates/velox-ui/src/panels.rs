@@ -148,23 +148,40 @@ impl PanelManager {
 
                 ui.separator();
 
-                // Buy/Sell buttons
-                ui.horizontal(|ui| {
-                    if ui.button("Buy").clicked() {
-                        tracing::info!("Buy clicked");
-                    }
-                    if ui.button("Sell").clicked() {
-                        tracing::info!("Sell clicked");
-                    }
-                });
-                ui.separator();
+                // Quantity slider
                 ui.horizontal(|ui| {
                     ui.label("Qty:");
-                    ui.add(egui::Slider::new(&mut 0.1_f64, 0.0..=10.0).text(""));
+                    ui.add(
+                        egui::Slider::new(&mut state.order_entry_qty, 0.0..=10.0)
+                            .clamping(egui::SliderClamping::Always),
+                    );
                 });
+
                 ui.separator();
-                if ui.button("Place Order").clicked() {
-                    tracing::info!("Order placed");
+
+                // Buy / Sell buttons
+                ui.horizontal(|ui| {
+                    let buy_btn = egui::Button::new("Buy")
+                        .fill(egui::Color32::from_rgb(0, 80, 40))
+                        .min_size(egui::vec2(70.0, 28.0));
+                    if ui.add(buy_btn).clicked() {
+                        state.buy_market();
+                    }
+                    let sell_btn = egui::Button::new("Sell")
+                        .fill(egui::Color32::from_rgb(120, 30, 30))
+                        .min_size(egui::vec2(70.0, 28.0));
+                    if ui.add(sell_btn).clicked() {
+                        state.sell_market();
+                    }
+                });
+
+                ui.separator();
+
+                // Feedback messages
+                if let Some(ref err) = state.order_error {
+                    ui.colored_label(egui::Color32::RED, err);
+                } else if let Some(ref ok) = state.order_success {
+                    ui.colored_label(egui::Color32::GREEN, ok);
                 }
             });
 
@@ -186,25 +203,140 @@ impl PanelManager {
             });
         });
 
-        // ── Right panel: Positions ───────────────────────────────
+        // ── Right panel: Positions & Account ──────────────────────
+        // Collect order/position data outside closures to avoid borrow issues
+        // with the cancel button (which needs &mut state).
+        let open_order_summaries: Vec<(velox_core::OrderId, velox_core::Side, f64, String, String)> = state
+            .open_orders()
+            .into_iter()
+            .map(|o| {
+                let price_str = o.price.map_or("MKT".to_string(), |p| format!("{:.2}", p));
+                (o.order_id, o.side, o.quantity, o.symbol.clone(), price_str)
+            })
+            .collect();
+
+        let position_summaries: Vec<(f64, String, f64, f64, f64)> = state
+            .positions()
+            .into_iter()
+            .filter(|p| p.quantity != 0.0)
+            .map(|p| {
+                (
+                    p.quantity,
+                    p.symbol.clone(),
+                    p.avg_entry_price,
+                    p.unrealized_pnl,
+                    p.realized_pnl,
+                )
+            })
+            .collect();
+
+        let account_cash = state.paper_trader.account().cash;
+        let account_equity = state.paper_trader.account().equity;
+        let account_bp = state.paper_trader.account().buying_power;
+        let account_upnl = state.paper_trader.account().unrealized_pnl;
+        let account_rpnl = state.paper_trader.account().realized_pnl;
+
         egui::SidePanel::right("positions")
             .resizable(true)
-            .default_width(220.0)
-            .min_width(150.0)
+            .default_width(260.0)
+            .min_width(180.0)
             .show(ctx, |ui| {
+                // ── Open Orders ────────────────────────────────────
+                ui.heading("Open Orders");
+                ui.separator();
+                if open_order_summaries.is_empty() {
+                    ui.label("No open orders");
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt("open_orders_scroll")
+                        .max_height(120.0)
+                        .show(ui, |ui| {
+                            for (order_id, side, qty, symbol, price_str) in &open_order_summaries {
+                                ui.horizontal(|ui| {
+                                    let side_color = match side {
+                                        velox_core::Side::Buy => egui::Color32::GREEN,
+                                        velox_core::Side::Sell => egui::Color32::RED,
+                                    };
+                                    ui.colored_label(side_color, format!("{:?}", side));
+                                    ui.label(format!("{} {} {}", qty, symbol, price_str));
+                                    if ui.button("X").clicked() {
+                                        state.cancel_order(*order_id);
+                                    }
+                                });
+                            }
+                        });
+                }
+
+                ui.separator();
+
+                // ── Positions ──────────────────────────────────────
                 ui.heading("Positions");
                 ui.separator();
-                ui.label("No open positions");
+                if position_summaries.is_empty() {
+                    ui.label("No open positions");
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt("positions_scroll")
+                        .max_height(120.0)
+                        .show(ui, |ui| {
+                            for (qty, symbol, avg_entry, upnl, rpnl) in &position_summaries {
+                                ui.horizontal(|ui| {
+                                    let side = if *qty > 0.0 { "LONG" } else { "SHORT" };
+                                    let side_color = if *qty > 0.0 {
+                                        egui::Color32::GREEN
+                                    } else {
+                                        egui::Color32::RED
+                                    };
+                                    ui.colored_label(side_color, side);
+                                    ui.label(format!(
+                                        "{} {} @ {:.2}",
+                                        qty.abs(),
+                                        symbol,
+                                        avg_entry,
+                                    ));
+                                });
+                                // P&L row
+                                let total_pnl = upnl + rpnl;
+                                let pnl_color = if total_pnl >= 0.0 {
+                                    egui::Color32::GREEN
+                                } else {
+                                    egui::Color32::RED
+                                };
+                                ui.horizontal(|ui| {
+                                    ui.label("  P&L:");
+                                    ui.colored_label(
+                                        pnl_color,
+                                        format!("${:.2}", total_pnl),
+                                    );
+                                });
+                            }
+                        });
+                }
+
                 ui.separator();
+
+                // ── Account ────────────────────────────────────────
                 ui.heading("Account");
                 ui.separator();
-                ui.label("Balance: $100,000.00");
-                ui.label("Equity:  $100,000.00");
-                ui.label("Margin:  $0.00");
+                ui.label(format!("Cash:    ${:.2}", account_cash));
+                ui.label(format!("Equity:  ${:.2}", account_equity));
+                ui.label(format!("Buy Pwr: ${:.2}", account_bp));
+                let total_pnl = account_upnl + account_rpnl;
+                let pnl_color = if total_pnl >= 0.0 {
+                    egui::Color32::GREEN
+                } else {
+                    egui::Color32::RED
+                };
+                ui.horizontal(|ui| {
+                    ui.label("P&L:");
+                    ui.colored_label(pnl_color, format!("${:.2}", total_pnl));
+                });
 
-                // Live data metrics
                 ui.separator();
+
+                // ── Feed info ──────────────────────────────────────
                 ui.heading("Feed");
+                ui.separator();
                 if state.feed_connected {
                     ui.label("● Live");
                 } else {

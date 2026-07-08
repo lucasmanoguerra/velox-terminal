@@ -240,7 +240,22 @@ impl App {
         // 3. Drain the mpsc channel into AppState
         let received = self.state.poll_candles();
 
-        // 4. Update pipeline metrics on state
+        // 4. Mock execution: if we have new candles, fill open market orders at the last price
+        // Extract values first to avoid borrow conflicts.
+        let last_close = self.state.candles.last().map(|c| c.close);
+        if let Some(close) = last_close {
+            let filled = self.state.execute_open_orders(close);
+            if filled > 0 {
+                tracing::info!("Mock fill: executed {filled} order(s) at {close:.2}");
+                self.state.update_account();
+                self.state.needs_redraw = true;
+            }
+            // Keep the paper trader in sync with latest price
+            let sym = self.state.symbol.clone();
+            self.state.paper_trader.update_price(&sym, close);
+        }
+
+        // 5. Update pipeline metrics on state
         self.state.ticks_processed = self.pipeline.ticks_processed();
         self.state.candles_produced = self.pipeline.candles_produced();
 

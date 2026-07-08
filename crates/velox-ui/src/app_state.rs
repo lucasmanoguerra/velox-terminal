@@ -18,7 +18,8 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use velox_chart::interaction::{ChartInteraction, ChartView};
 use velox_chart::overlay::OverlayManager;
-use velox_core::Candle;
+use velox_core::{Candle, Order, OrderId, Position, Side};
+use velox_oms::PaperTrader;
 
 /// Shared application state, mutated sequentially on the main thread.
 pub struct AppState {
@@ -63,6 +64,19 @@ pub struct AppState {
     pub ticks_processed: u64,
     pub candles_produced: u64,
     pub feed_connected: bool,
+
+    // ── Order management ───────────────────────────────────────────────
+    /// Paper trading engine (OrderManager + mock execution + positions).
+    pub paper_trader: PaperTrader,
+
+    /// Current quantity in the order entry slider.
+    pub order_entry_qty: f64,
+
+    /// Last order submission error (displayed briefly in UI).
+    pub order_error: Option<String>,
+
+    /// Last order success message (displayed briefly in UI).
+    pub order_success: Option<String>,
 }
 
 impl AppState {
@@ -89,6 +103,10 @@ impl AppState {
             ticks_processed: 0,
             candles_produced: 0,
             feed_connected: false,
+            paper_trader: PaperTrader::new(100_000.0),
+            order_entry_qty: 0.01,
+            order_error: None,
+            order_success: None,
         }
     }
 
@@ -112,6 +130,10 @@ impl AppState {
             ticks_processed: 0,
             candles_produced: 0,
             feed_connected: false,
+            paper_trader: PaperTrader::new(100_000.0),
+            order_entry_qty: 0.01,
+            order_error: None,
+            order_success: None,
         }
     }
 
@@ -228,6 +250,87 @@ impl AppState {
     /// Connect to a live feed.
     pub fn set_feed_connected(&mut self, connected: bool) {
         self.feed_connected = connected;
+    }
+
+    // ── Order methods ─────────────────────────────────────────────────
+
+    /// Submit a buy market order with the current `order_entry_qty`.
+    pub fn buy_market(&mut self) {
+        let sym = self.symbol.clone();
+        let qty = self.order_entry_qty;
+        match self.paper_trader.submit_market_order(&sym, Side::Buy, qty) {
+            Ok(id) => {
+                self.order_success = Some(format!("Buy {} {} (ID: {:.8})", qty, sym, id.0));
+                self.order_error = None;
+            }
+            Err(e) => {
+                self.order_error = Some(e);
+                self.order_success = None;
+            }
+        }
+    }
+
+    /// Submit a sell market order with the current `order_entry_qty`.
+    pub fn sell_market(&mut self) {
+        let sym = self.symbol.clone();
+        let qty = self.order_entry_qty;
+        match self.paper_trader.submit_market_order(&sym, Side::Sell, qty) {
+            Ok(id) => {
+                self.order_success = Some(format!("Sell {} {} (ID: {:.8})", qty, sym, id.0));
+                self.order_error = None;
+            }
+            Err(e) => {
+                self.order_error = Some(e);
+                self.order_success = None;
+            }
+        }
+    }
+
+    /// Cancel an open order by ID.
+    pub fn cancel_order(&mut self, order_id: OrderId) {
+        match self.paper_trader.cancel_order(order_id) {
+            Ok(()) => {
+                self.order_success = Some(format!("Canceled order {:.8}", order_id.0));
+                self.order_error = None;
+            }
+            Err(e) => {
+                self.order_error = Some(e);
+            }
+        }
+    }
+
+    /// Execute open market orders at the latest known price.
+    /// Called automatically during `poll_market_data()`.
+    pub fn execute_open_orders(&mut self, price: f64) -> usize {
+        let sym = self.symbol.clone();
+        self.paper_trader.execute_open_orders(&sym, price)
+    }
+
+    /// Access computed positions.
+    pub fn positions(&self) -> Vec<Position> {
+        self.paper_trader.positions()
+    }
+
+    /// All orders for display.
+    pub fn orders(&self) -> Vec<&Order> {
+        self.paper_trader.orders()
+    }
+
+    /// Open (non-terminal) orders.
+    pub fn open_orders(&self) -> Vec<&Order> {
+        self.paper_trader.open_orders()
+    }
+
+    /// Update account equity/P&L from current positions.
+    pub fn update_account(&mut self) {
+        self.paper_trader.update_account();
+    }
+
+    /// Clear transient feedback messages.
+    pub fn clear_feedback(&mut self) {
+        // Keep messages around for a frame; clear them after display
+        self.order_error = None;
+        self.order_success = None;
     }
 }
 
