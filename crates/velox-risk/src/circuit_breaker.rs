@@ -50,9 +50,10 @@ impl CircuitBreaker {
             }
             // Check cooldown
             if let Some(cooldown) = breaker.cooldown_until
-                && Utc::now() >= cooldown {
-                    return false; // cooldown expired
-                }
+                && Utc::now() >= cooldown
+            {
+                return false; // cooldown expired
+            }
             return true;
         }
         false

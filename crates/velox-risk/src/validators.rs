@@ -88,12 +88,13 @@ impl RiskValidator {
 
         // 5. Circuit breaker
         if let Some(ref cb) = self.circuit_breaker
-            && cb.is_triggered(&order.symbol) {
-                return RiskCheckResult::Rejected(RiskError::CircuitBreakerTriggered {
-                    symbol: order.symbol.clone(),
-                    reason: "Circuit breaker active".into(),
-                });
-            }
+            && cb.is_triggered(&order.symbol)
+        {
+            return RiskCheckResult::Rejected(RiskError::CircuitBreakerTriggered {
+                symbol: order.symbol.clone(),
+                reason: "Circuit breaker active".into(),
+            });
+        }
 
         RiskCheckResult::Approved
     }
