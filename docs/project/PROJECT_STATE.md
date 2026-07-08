@@ -29,9 +29,13 @@ Current state of the velox-terminal project.
 
 - Conectores a más exchanges (BingX, Bybit, Kraken)
 - Order book depth stream
-- Indicadores overlay en chart (pipeline GPU para líneas)
 - OMS conectado con UI (botón Place Order → orden real)
 - Backtesting con slippage
+
+## Completed Recently
+
+- **Indicadores overlay en chart**: SMA/EMA/RSI renderizados como líneas GPU
+  (LineList vertex-buffer, per-vertex colors, NaN handling, UI toggles)
 
 ## Next Up
 

@@ -4,6 +4,31 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-08 — Indicator overlays on chart (SMA/EMA/RSI GPU lines)
+
+**Decision**: Implementar overlays de indicadores técnicos (SMA, EMA, RSI) renderizados como líneas GPU sobre el chart de velas. El pipeline de renderizado centralizado (`line_pipeline` en ChartRenderer) recibe datos desde OverlayManager, se procesan en CPU con NaN-aware segment splitting, y se renderizan con el pipeline `line.wgsl` v2 (vertex-buffer-based, per-vertex colors).
+
+**Problema resuelto**: El chart mostraba velas y volumen pero no overlays de indicadores. `line.wgsl` era un stub con instancing incorrecto, y `IndicatorOverlay` trait estaba muerto.
+
+**Key changes**:
+- `line.wgsl`: rewrite completo — de storage-buffer instanced a vertex-buffer-based con per-vertex colors. Uniforms coinciden con `ChartUniforms` (7×f32). Entry points: `vs_main`/`fs_main`.
+- `renderer.rs`: `LineVertex` (stride 20, 3 atributos), `LineDescriptor` type alias, buffer/bind group/vertex count. `create_line_pipeline()` con vertex layout. `update_lines()` con NaN handling + `flush_line_segment()`. Render pass 5: lines after volume.
+- `overlay.rs`: `values()`/`color()` accessors en `OverlayInstance`. `has_overlay()` y `collect_line_data()`. Removido `IndicatorOverlay` trait.
+- `app.rs`: wire-up overlay → line data → chart renderer en `composite_render()`.
+- `panels.rs`: toggle buttons SMA(20) [green], EMA(20) [yellow], RSI(14) [orange].
+- `Cargo.toml` UI: depende de `velox-indicators`.
+
+**Files changed**: 8 files, +258−76 líneas.
+- `crates/velox-gpu/shaders/line.wgsl` (rewrite)
+- `crates/velox-chart/src/renderer.rs` (+LineVertex, update_lines, line pipeline)
+- `crates/velox-chart/src/overlay.rs` (+accessors, remove stub)
+- `crates/velox-chart/src/lib.rs` (exports)
+- `crates/velox-ui/src/panels.rs` (+indicator toggles)
+- `crates/velox-ui/Cargo.toml` (+velox-indicators dep)
+- `crates/velox-terminal/src/app.rs` (+overlay wire-up)
+
+---
+
 ## 2026-07-06 — Project initialization
 
 **Decision**: Define velox-terminal as a Rust + wgpu + egui + glyphon + tokio trading terminal, organized as a Cargo workspace with clearly bounded crates.
