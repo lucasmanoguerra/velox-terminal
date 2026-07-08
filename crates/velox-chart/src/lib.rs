@@ -19,7 +19,7 @@ pub mod renderer;
 pub use interaction::{ChartInteraction, ChartView};
 pub use overlay::OverlayManager;
 pub use renderer::{
-    CandleGpuData, ChartRenderer, ChartUniforms, GridVertex, IndicatorOverlay, LinePointGpu,
+    CandleGpuData, ChartRenderer, ChartUniforms, GridVertex, LineDescriptor, LineVertex,
     VolumeGpuData,
 };
 

@@ -6,6 +6,7 @@
 
 use crate::app_state::AppState;
 use egui;
+use velox_indicators::{Ema, Rsi, Sma};
 
 /// Manages the panel layout and UI state.
 pub struct PanelManager;
@@ -62,6 +63,41 @@ impl PanelManager {
                         if ui.selectable_label(selected, label.as_str()).clicked() {
                             state.set_timeframe(tf);
                         }
+                    }
+
+                    ui.separator();
+
+                    // ── Indicator toggles ──────────────────────
+                    ui.label("Indicators:");
+                    let sma_name = "SMA(20)";
+                    let sma_enabled = state.overlays.has_overlay(sma_name);
+                    if ui.selectable_label(sma_enabled, sma_name).clicked() {
+                        if sma_enabled {
+                            state.overlays.remove(sma_name);
+                        } else {
+                            state.overlays.add(sma_name, Sma::new(20), (0.0, 1.0, 0.0));
+                        }
+                        state.needs_redraw = true;
+                    }
+                    let ema_name = "EMA(20)";
+                    let ema_enabled = state.overlays.has_overlay(ema_name);
+                    if ui.selectable_label(ema_enabled, ema_name).clicked() {
+                        if ema_enabled {
+                            state.overlays.remove(ema_name);
+                        } else {
+                            state.overlays.add(ema_name, Ema::new(20), (1.0, 1.0, 0.0));
+                        }
+                        state.needs_redraw = true;
+                    }
+                    let rsi_name = "RSI(14)";
+                    let rsi_enabled = state.overlays.has_overlay(rsi_name);
+                    if ui.selectable_label(rsi_enabled, rsi_name).clicked() {
+                        if rsi_enabled {
+                            state.overlays.remove(rsi_name);
+                        } else {
+                            state.overlays.add(rsi_name, Rsi::new(14), (1.0, 0.5, 0.0));
+                        }
+                        state.needs_redraw = true;
                     }
 
                     // ── Right side ────────────────────────────────

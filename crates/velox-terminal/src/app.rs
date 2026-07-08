@@ -360,6 +360,13 @@ impl App {
             phys_h,
         );
 
+        // ── 3.5 Update indicator overlays (line data) ─────────
+        if !self.state.candles.is_empty() {
+            self.state.overlays.update_all(&self.state.candles);
+            let line_data = self.state.overlays.collect_line_data();
+            self.chart_renderer.update_lines(&line_data);
+        }
+
         // ── 4. Get surface texture ─────────────────────────────
         let frame = match self.surface.get_current_texture() {
             Ok(f) => f,

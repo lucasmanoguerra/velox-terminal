@@ -57,13 +57,20 @@ pub struct GridVertex {
     pub y: f32,
 }
 
-/// Line overlay point (matches line.wgsl).
+/// Line vertex with per-vertex color (matches line.wgsl vertex input).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
-pub struct LinePointGpu {
+pub struct LineVertex {
     pub timestamp: f32,
     pub price: f32,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
 }
+
+/// A descriptor for one indicator line overlay.
+/// `(name, [(timestamp_unix, value)], (r, g, b) color)`.
+pub type LineDescriptor = (String, Vec<(f64, f64)>, (f32, f32, f32));
 
 // ── Bind group layout indices ──────────────────────────────────────
 
@@ -78,7 +85,6 @@ pub struct ChartRenderer {
     candle_wick_pipeline: wgpu::RenderPipeline,
     grid_pipeline: wgpu::RenderPipeline,
     volume_pipeline: wgpu::RenderPipeline,
-    #[expect(dead_code)]
     line_pipeline: wgpu::RenderPipeline,
     // Candle/volume layout (uniform + storage)
     bind_group_layout: wgpu::BindGroupLayout,
@@ -93,14 +99,17 @@ pub struct ChartRenderer {
     candle_buffer: wgpu::Buffer,
     volume_buffer: wgpu::Buffer,
     grid_vertex_buffer: wgpu::Buffer,
+    line_vertex_buffer: wgpu::Buffer,
     // Bind groups
     candle_bind_group: wgpu::BindGroup,
     volume_bind_group: wgpu::BindGroup,
     grid_bind_group: wgpu::BindGroup,
+    line_bind_group: wgpu::BindGroup,
     // Counts
     num_candles: u32,
     num_volume_bars: u32,
     num_grid_vertices: u32,
+    num_line_vertices: u32,
     // Device handle for buffer operations
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -205,6 +214,13 @@ impl ChartRenderer {
             mapped_at_creation: false,
         });
 
+        let line_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("line_vertices"),
+            size: 1024,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         // ── Create pipelines ─────────────────────────────────────
         let mut pipeline_manager = RenderPipelineManager::new(device, shader_manager);
 
@@ -240,9 +256,13 @@ impl ChartRenderer {
         let volume_pipeline =
             Self::create_volume_pipeline(device, &mut pipeline_manager, &pipeline_layout, format)?;
 
-        // Line overlay pipeline
-        let line_pipeline =
-            Self::create_line_pipeline(device, &mut pipeline_manager, &pipeline_layout, format)?;
+        // Line overlay pipeline (uses grid layout — uniform only, vertex buffers)
+        let line_pipeline = Self::create_line_pipeline(
+            device,
+            &mut pipeline_manager,
+            &grid_pipeline_layout,
+            format,
+        )?;
 
         // ── Create bind groups ───────────────────────────────────
         let candle_bind_group = Self::create_storage_bind_group(
@@ -271,6 +291,16 @@ impl ChartRenderer {
             }],
         });
 
+        // Line bind group: same layout as grid (uniform only — vertex buffers)
+        let line_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("line_bg"),
+            layout: &grid_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: BIND_UNIFORMS,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
         info!("ChartRenderer initialized");
         Ok(Self {
             candle_body_pipeline,
@@ -286,12 +316,15 @@ impl ChartRenderer {
             candle_buffer,
             volume_buffer,
             grid_vertex_buffer,
+            line_vertex_buffer,
             candle_bind_group,
             volume_bind_group,
             grid_bind_group,
+            line_bind_group,
             num_candles: 0,
             num_volume_bars: 0,
             num_grid_vertices: 0,
+            num_line_vertices: 0,
             device: device.clone(),
             queue: queue.clone(),
         })
@@ -461,13 +494,33 @@ impl ChartRenderer {
             layout: Some(layout),
             vertex: wgpu::VertexState {
                 module: &module,
-                entry_point: Some("vs_line"),
+                entry_point: Some("vs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: mem::size_of::<LineVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32,
+                            offset: 0,
+                            shader_location: 0,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32,
+                            offset: 4,
+                            shader_location: 1,
+                        },
+                        wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Float32x3,
+                            offset: 8,
+                            shader_location: 2,
+                        },
+                    ],
+                }],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &module,
-                entry_point: Some("fs_line"),
+                entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
@@ -655,6 +708,81 @@ impl ChartRenderer {
         self.num_grid_vertices = vertices.len() as u32;
     }
 
+    /// Update line vertex data for indicator overlays.
+    ///
+    /// Each descriptor is `(name, values, color)` where values are `(timestamp, price)` pairs.
+    /// NaN values in prices split the line into separate segments (GPU sees no NaNs).
+    pub fn update_lines(&mut self, overlay_data: &[LineDescriptor]) {
+        let mut vertices: Vec<LineVertex> = Vec::new();
+
+        for (_name, values, color) in overlay_data {
+            let mut segment: Vec<LineVertex> = Vec::new();
+
+            for &(ts, val) in values {
+                if val.is_nan() {
+                    // NaN breaks the line — flush current segment
+                    Self::flush_line_segment(&mut vertices, &segment);
+                    segment.clear();
+                } else {
+                    segment.push(LineVertex {
+                        timestamp: ts as f32,
+                        price: val as f32,
+                        r: color.0,
+                        g: color.1,
+                        b: color.2,
+                    });
+                }
+            }
+            // Flush remaining segment
+            Self::flush_line_segment(&mut vertices, &segment);
+        }
+
+        if vertices.is_empty() {
+            self.num_line_vertices = 0;
+            return;
+        }
+
+        let data_size = (vertices.len() * mem::size_of::<LineVertex>()) as u64;
+
+        // Grow vertex buffer if needed
+        if self.line_vertex_buffer.size() < data_size {
+            let new_size = data_size.next_power_of_two();
+            self.line_vertex_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("line_vertices"),
+                size: new_size,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+
+        self.queue
+            .write_buffer(&self.line_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+
+        // Recreate bind group (uniform only — uses grid_bind_group_layout)
+        self.line_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("line_bg"),
+            layout: &self.grid_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: BIND_UNIFORMS,
+                resource: self.uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        self.num_line_vertices = vertices.len() as u32;
+    }
+
+    /// Flush a segment of connected points into the vertex buffer as LineList pairs.
+    /// For N points, produces (N-1)*2 vertices (each pair = one line segment).
+    fn flush_line_segment(out: &mut Vec<LineVertex>, segment: &[LineVertex]) {
+        if segment.len() < 2 {
+            return; // Need at least 2 points for a segment
+        }
+        for i in 0..segment.len() - 1 {
+            out.push(segment[i]);
+            out.push(segment[i + 1]);
+        }
+    }
+
     /// Update uniform buffer with viewport transform.
     pub fn update_uniforms(&self, uniforms: &ChartUniforms) {
         self.queue
@@ -697,6 +825,14 @@ impl ChartRenderer {
             pass.set_pipeline(&self.volume_pipeline);
             pass.set_bind_group(0, &self.volume_bind_group, &[]);
             pass.draw(0..4, 0..self.num_volume_bars);
+        }
+
+        // 5. Indicator overlay lines
+        if self.num_line_vertices > 0 {
+            pass.set_pipeline(&self.line_pipeline);
+            pass.set_bind_group(0, &self.line_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.line_vertex_buffer.slice(..));
+            pass.draw(0..self.num_line_vertices, 0..1);
         }
     }
 
@@ -790,12 +926,4 @@ impl ChartRenderer {
             mapped_at_creation: false,
         });
     }
-}
-
-// ── Default indicator overlay support ──────────────────────────────
-
-/// Trait for rendering an indicator overlay (SMA, EMA, RSI, etc.).
-pub trait IndicatorOverlay: Send + Sync {
-    fn name(&self) -> &str;
-    fn render<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, uniforms: &ChartUniforms);
 }

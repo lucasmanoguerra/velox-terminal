@@ -4196,6 +4196,7 @@ dependencies = [
  "velox-chart",
  "velox-core",
  "velox-gpu",
+ "velox-indicators",
  "velox-md",
  "velox-oms",
  "wgpu 24.0.5",

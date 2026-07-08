@@ -1,6 +1,5 @@
 //! Chart overlays — indicators, drawings, annotations.
 
-use crate::IndicatorOverlay;
 use std::any::Any;
 use velox_core::Candle;
 use velox_indicators::traits::Indicator;
@@ -14,11 +13,12 @@ pub struct OverlayManager {
 }
 
 /// Internal trait for type-erased overlay management.
-#[expect(dead_code)]
 trait AnyOverlay: Send + Sync {
     fn name(&self) -> &str;
     fn update(&mut self, candles: &[Candle]);
-    fn as_indicator_overlay(&self) -> &dyn IndicatorOverlay;
+    fn values(&self) -> Vec<(f64, f64)>;
+    fn color(&self) -> (f32, f32, f32);
+    #[expect(dead_code)]
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
@@ -55,6 +55,16 @@ impl<I: Indicator<f64, Output = f64> + Send + Sync + 'static> OverlayInstance<I>
     pub fn last_value(&self) -> Option<f64> {
         self.values.last().map(|&(_, v)| v)
     }
+
+    /// Get all computed values as (timestamp, value) pairs.
+    pub fn values(&self) -> Vec<(f64, f64)> {
+        self.values.clone()
+    }
+
+    /// Get the line color.
+    pub fn color(&self) -> (f32, f32, f32) {
+        self.color
+    }
 }
 
 impl<I: Indicator<f64, Output = f64> + Send + Sync + 'static> AnyOverlay for OverlayInstance<I> {
@@ -66,22 +76,12 @@ impl<I: Indicator<f64, Output = f64> + Send + Sync + 'static> AnyOverlay for Ove
         self.update(candles);
     }
 
-    fn as_indicator_overlay(&self) -> &dyn IndicatorOverlay {
-        // This would need a proper renderer implementation
-        // For now we return a stub since line rendering requires GPU context
-        struct StubOverlay;
-        impl IndicatorOverlay for StubOverlay {
-            fn name(&self) -> &str {
-                "stub"
-            }
-            fn render<'a>(
-                &'a self,
-                _pass: &mut wgpu::RenderPass<'a>,
-                _uniforms: &crate::renderer::ChartUniforms,
-            ) {
-            }
-        }
-        &StubOverlay
+    fn values(&self) -> Vec<(f64, f64)> {
+        self.values.clone()
+    }
+
+    fn color(&self) -> (f32, f32, f32) {
+        self.color
     }
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -138,6 +138,28 @@ impl OverlayManager {
     /// Get overlay names.
     pub fn names(&self) -> Vec<&str> {
         self.overlays.iter().map(|o| o.name()).collect()
+    }
+
+    /// Check if an overlay with the given name exists.
+    pub fn has_overlay(&self, name: &str) -> bool {
+        self.overlays.iter().any(|o| o.name() == name)
+    }
+
+    /// Collect all overlay data for GPU line rendering.
+    ///
+    /// Returns Vec of `LineDescriptor`: `(name, [(timestamp, value)], (r, g, b))`.
+    /// Empty overlays are filtered out.
+    pub fn collect_line_data(&self) -> Vec<crate::renderer::LineDescriptor> {
+        self.overlays
+            .iter()
+            .filter_map(|o| {
+                let values = o.values();
+                if values.is_empty() {
+                    return None;
+                }
+                Some((o.name().to_string(), values, o.color()))
+            })
+            .collect()
     }
 }
 

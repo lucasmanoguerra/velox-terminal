@@ -10,6 +10,7 @@ velox-core = { path = "../velox-core" }
 velox-md = { path = "../velox-md" }
 velox-oms = { path = "../velox-oms" }
 velox-chart = { path = "../velox-chart" }
+velox-indicators = { path = "../velox-indicators" }
 velox-gpu = { path = "../velox-gpu" }
 egui.workspace = true
 egui-wgpu.workspace = true
