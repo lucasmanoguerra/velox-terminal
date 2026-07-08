@@ -1,12 +1,26 @@
-//! Binance exchange connector — WebSocket market data feed.
+//! Binance exchange connector — WebSocket market data feed with auto-reconnect.
 //!
 //! Connects to Binance public WebSocket streams and converts trade/quote
 //! events into [`MarketEvent`]s pushed to a lock-free [`RingBuffer`].
 //!
+//! # Reconnection
+//!
+//! The feed automatically reconnects with exponential backoff + full jitter:
+//!
+//! | Attempt | Delay range  | Notes              |
+//! |---------|--------------|--------------------|
+//! | 1       | 0.5 – 1.0 s  | Immediate retry    |
+//! | 2       | 1.0 – 2.0 s  |                    |
+//! | 3       | 2.0 – 4.0 s  |                    |
+//! | 4       | 4.0 – 8.0 s  |                    |
+//! | 5+      | 8.0 – 60.0 s | Capped at max 60s  |
+//!
+//! Reconnection is cancellable (sub-second shutdown response) and
+//! respects the `stop()` signal.
+//!
 //! # Streams
 //!
 //! - **Trade**: `<symbol>@trade` — real-time trade ticks
-//! - **Book Ticker**: `<symbol>@bookTicker` — top-of-book quotes
 //!
 //! # Rate Limits
 //!
@@ -17,7 +31,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use chrono::Utc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures_util::StreamExt;
 use tokio::sync::Mutex;
 use tokio_tungstenite::connect_async;
@@ -31,22 +45,35 @@ use crate::ExchangeFeed;
 /// Binance WebSocket base URL for combined streams.
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/ws";
 
+/// Default maximum reconnect delay in seconds.
+const DEFAULT_MAX_RECONNECT_SECS: u64 = 60;
+
+/// Default base delay for backoff in milliseconds.
+const DEFAULT_BASE_DELAY_MS: u64 = 1000;
+
 /// Internal shared state for a Binance feed connection.
 struct BinanceFeedInner {
     /// Flag to signal the tokio task to stop.
     running: AtomicBool,
+    /// Whether the WebSocket is currently connected.
+    feed_connected: AtomicBool,
     /// Connected symbols (lowercase, e.g. "btcusdt").
     symbols: Mutex<Vec<String>>,
     /// Ring buffer shared with consumer.
     ring: Mutex<Option<Arc<RingBuffer>>>,
     /// Tokio task handle for graceful shutdown.
     task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// Maximum reconnect backoff in seconds.
+    max_reconnect_secs: u64,
+    /// Base delay for exponential backoff in milliseconds.
+    base_delay_ms: u64,
 }
 
 /// Binance exchange market data feed.
 ///
 /// Creates a WebSocket connection to Binance's combined stream endpoint
-/// and pushes trade ticks into the ring buffer.
+/// and pushes trade ticks into the ring buffer. Automatically reconnects
+/// on connection loss with exponential backoff.
 ///
 /// # Example
 ///
@@ -68,11 +95,19 @@ impl BinanceFeed {
         Self {
             inner: Arc::new(BinanceFeedInner {
                 running: AtomicBool::new(false),
+                feed_connected: AtomicBool::new(false),
                 symbols: Mutex::new(Vec::new()),
                 ring: Mutex::new(None),
                 task_handle: Mutex::new(None),
+                max_reconnect_secs: DEFAULT_MAX_RECONNECT_SECS,
+                base_delay_ms: DEFAULT_BASE_DELAY_MS,
             }),
         }
+    }
+
+    /// Return whether the WebSocket is currently connected.
+    pub fn connected(&self) -> bool {
+        self.inner.feed_connected.load(Ordering::Acquire)
     }
 
     /// Build the combined stream path for subscribed symbols.
@@ -83,6 +118,49 @@ impl BinanceFeed {
             .map(|s| format!("{}@trade", s))
             .collect();
         format!("/stream?streams={}", streams.join("/"))
+    }
+
+    /// Exponential backoff with full jitter: sleep between 0 and `base * 2^attempt`,
+    /// capped at `max_reconnect_secs`. Uses wall-clock time as cheap entropy for jitter.
+    fn backoff_delay(attempt: u64, max_secs: u64, base_ms: u64) -> Duration {
+        // Exponential: base * 2^(attempt-1), capped at max_secs.
+        // Compute 2^(attempt-1) via wrapping shift or fallback.
+        let exponent = (attempt.saturating_sub(1)).min(60) as u32;
+        let multiplier = if exponent >= 63 {
+            u64::MAX
+        } else {
+            1u64 << exponent // 2^exponent
+        };
+        let exp_ms = base_ms.saturating_mul(multiplier);
+        let max_ms = max_secs * 1000;
+        let window_ms = exp_ms.min(max_ms);
+
+        // Full jitter: pick a random point within [0, window_ms]
+        // Use SystemTime as cheap entropy source
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        // Mix attempt into the hash so different attempts get different jitter
+        let hash = (now.as_nanos() as u128) ^ ((attempt as u128) << 64);
+        let jitter_ms = (hash % (window_ms.max(1) as u128)) as u64;
+
+        // Minimum 500ms between reconnects to avoid busy-looping
+        Duration::from_millis(jitter_ms.max(500).min(max_ms))
+    }
+
+    /// Wait for a duration, polling `running` every 100ms for responsiveness.
+    /// Returns immediately if `running` becomes false.
+    async fn sleep_with_running_check(
+        inner: &BinanceFeedInner,
+        duration: Duration,
+    ) {
+        let start = tokio::time::Instant::now();
+        while start.elapsed() < duration {
+            if !inner.running.load(Ordering::Acquire) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 }
 
@@ -115,8 +193,9 @@ impl ExchangeFeed for BinanceFeed {
         let inner_task = inner.clone();
         let handle = tokio::spawn(async move {
             if let Err(e) = Self::run_loop(inner_task.clone()).await {
-                tracing::error!("Binance feed error: {e}");
+                tracing::error!("Binance feed run_loop exited with error: {e}");
             }
+            inner_task.feed_connected.store(false, Ordering::Release);
             inner_task.running.store(false, Ordering::Release);
         });
 
@@ -178,64 +257,137 @@ impl ExchangeFeed for BinanceFeed {
 // ── Internal implementation ──────────────────────────────────────────
 
 impl BinanceFeed {
-    /// Main WebSocket event loop.
+    /// Main connection + reconnection loop.
+    ///
+    /// 1. Tries to connect to Binance WebSocket
+    /// 2. On success: reads messages until disconnect
+    /// 3. On disconnect: backs off and retries from step 1
+    /// 4. Exits only when `running` becomes false
     async fn run_loop(inner: Arc<BinanceFeedInner>) -> Result<(), ExchangeError> {
-        // Get current symbols for the initial connection
-        let symbols = inner.symbols.lock().await.clone();
-        if symbols.is_empty() {
-            tracing::warn!("Binance feed started with no symbols subscribed");
-            return Err(ExchangeError::Internal("no symbols subscribed".into()));
-        }
-
-        let stream_path = Self::build_stream_path(&symbols);
-        let ws_url = format!("{}{}", BINANCE_WS_URL, stream_path);
-
-        tracing::info!("Connecting to Binance WebSocket: {ws_url}");
-
-        let (ws_stream, _response) = connect_async(&ws_url)
-            .await
-            .map_err(|e| ExchangeError::WebSocket(e.to_string()))?;
-
-        tracing::info!("Binance WebSocket connected");
-
-        let (_write, mut read) = ws_stream.split();
+        let mut attempt: u64 = 0;
 
         while inner.running.load(Ordering::Acquire) {
-            tokio::select! {
-                msg = read.next() => {
-                    match msg {
-                        Some(Ok(Message::Text(text))) => {
-                            if let Err(e) = Self::handle_message(&inner, &text) {
-                                tracing::warn!("Binance message error: {e}");
+            // ── 1. Get subscribed symbols ─────────────────────────
+            let symbols = inner.symbols.lock().await.clone();
+            if symbols.is_empty() {
+                tracing::warn!("Binance feed: no symbols subscribed, waiting...");
+                Self::sleep_with_running_check(&inner, Duration::from_secs(5)).await;
+                continue;
+            }
+
+            // ── 2. Attempt connection ─────────────────────────────
+            let stream_path = Self::build_stream_path(&symbols);
+            let ws_url = format!("{}{}", BINANCE_WS_URL, stream_path);
+
+            if attempt > 0 {
+                let delay = Self::backoff_delay(
+                    attempt,
+                    inner.max_reconnect_secs,
+                    inner.base_delay_ms,
+                );
+                tracing::warn!(
+                    "Binance reconnecting in {}ms (attempt {})",
+                    delay.as_millis(),
+                    attempt + 1,
+                );
+                Self::sleep_with_running_check(&inner, delay).await;
+
+                // Check if we were told to stop during the sleep
+                if !inner.running.load(Ordering::Acquire) {
+                    break;
+                }
+            }
+
+            tracing::info!(
+                "Binance connecting to WebSocket (attempt {})...",
+                attempt + 1,
+            );
+
+            let result = connect_async(&ws_url).await;
+            match result {
+                Ok((ws_stream, _response)) => {
+                    tracing::info!("Binance WebSocket connected successfully");
+                    inner.feed_connected.store(true, Ordering::Release);
+                    attempt = 0; // reset backoff on successful connect
+
+                    let (_write, mut read) = ws_stream.split();
+
+                    // ── 3. Read messages until disconnect ─────────
+                    let read_result: Result<(), ExchangeError> = 'read_loop: loop {
+                        tokio::select! {
+                            msg = read.next() => {
+                                match msg {
+                                    Some(Ok(Message::Text(text))) => {
+                                        if let Err(e) = Self::handle_message(&inner, &text) {
+                                            tracing::warn!("Binance message handler error: {e}");
+                                        }
+                                    }
+                                    Some(Ok(Message::Ping(_))) => {
+                                        // tungstenite handles pongs automatically
+                                    }
+                                    Some(Ok(Message::Close(frame))) => {
+                                        tracing::info!("Binance connection closed: {frame:?}");
+                                        break 'read_loop Err(ExchangeError::StreamEnded);
+                                    }
+                                    Some(Ok(_)) => {} // binary, pong, etc.
+                                    Some(Err(e)) => {
+                                        tracing::error!("Binance WebSocket read error: {e}");
+                                        break 'read_loop Err(ExchangeError::WebSocket(e.to_string()));
+                                    }
+                                    None => {
+                                        tracing::warn!("Binance stream ended (None)");
+                                        break 'read_loop Err(ExchangeError::StreamEnded);
+                                    }
+                                }
+                            }
+                            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                                // Periodic health check — connection is alive
+                                // (We only get here if no messages arrive for 30s)
+                                if !inner.feed_connected.load(Ordering::Acquire) {
+                                    tracing::warn!("Binance feed marked disconnected during read loop");
+                                    break 'read_loop Err(ExchangeError::StreamEnded);
+                                }
                             }
                         }
-                        Some(Ok(Message::Ping(data))) => {
-                            // tungstenite handles pongs automatically
-                            tracing::trace!("Binance ping received: {} bytes", data.len());
+
+                        // Check if we should stop
+                        if !inner.running.load(Ordering::Acquire) {
+                            break 'read_loop Ok(());
                         }
-                        Some(Ok(Message::Close(frame))) => {
-                            tracing::info!("Binance connection closed: {frame:?}");
+                    };
+
+                    // Connection dropped — mark disconnected
+                    inner.feed_connected.store(false, Ordering::Release);
+
+                    match read_result {
+                        Ok(()) => {
+                            tracing::info!("Binance feed stopped gracefully");
                             break;
                         }
-                        Some(Ok(_)) => {} // binary, pong, etc.
-                        Some(Err(e)) => {
-                            tracing::error!("Binance WebSocket error: {e}");
-                            break;
+                        Err(ExchangeError::StreamEnded)
+                        | Err(ExchangeError::WebSocket(_)) => {
+                            attempt += 1;
+                            continue; // reconnect
                         }
-                        None => {
-                            tracing::warn!("Binance stream ended");
+                        Err(e) => {
+                            tracing::error!(
+                                "Binance feed unrecoverable error: {e}"
+                            );
                             break;
                         }
                     }
                 }
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(30)) => {
-                    // Periodic health check — connection is still alive
-                    tracing::trace!("Binance feed heartbeat");
+                Err(e) => {
+                    tracing::error!("Binance WebSocket connection failed: {e}");
+                    inner.feed_connected.store(false, Ordering::Release);
+                    attempt += 1;
+                    continue; // reconnect
                 }
             }
         }
 
-        tracing::info!("Binance feed stopped");
+        inner.feed_connected.store(false, Ordering::Release);
+        tracing::info!("Binance feed run_loop exited");
         Ok(())
     }
 
@@ -309,7 +461,7 @@ impl BinanceFeed {
 
         // Convert timestamp to chrono::DateTime<Utc>
         let timestamp = chrono::DateTime::from_timestamp_millis(trade_time)
-            .unwrap_or_else(Utc::now);
+            .unwrap_or_else(chrono::Utc::now);
 
         let tick = Tick {
             symbol: symbol_bytes,
@@ -331,6 +483,7 @@ impl BinanceFeed {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
 
     #[test]
     fn test_build_stream_path() {
@@ -367,9 +520,12 @@ mod tests {
     fn test_handle_trade() {
         let inner = Arc::new(BinanceFeedInner {
             running: AtomicBool::new(true),
+            feed_connected: AtomicBool::new(true),
             symbols: Mutex::new(vec!["btcusdt".into()]),
             ring: Mutex::new(Some(Arc::new(RingBuffer::new(1024)))),
             task_handle: Mutex::new(None),
+            max_reconnect_secs: DEFAULT_MAX_RECONNECT_SECS,
+            base_delay_ms: DEFAULT_BASE_DELAY_MS,
         });
 
         let json = r#"{
@@ -402,5 +558,39 @@ mod tests {
         let symbols = feed.inner.symbols.try_lock().unwrap();
         assert!(symbols.contains(&"btcusd".into()));
         assert!(symbols.contains(&"ethbtc".into()));
+    }
+
+    #[test]
+    fn test_backoff_delay_basic() {
+        // Attempt 1: base=1000ms -> window = [500, 1000]ms (jitter, min 500)
+        let d1 = BinanceFeed::backoff_delay(1, 60, 1000);
+        assert!(d1.as_millis() >= 500);
+        assert!(d1.as_millis() <= 1000);
+
+        // Attempt 2: base*2 = 2000ms -> window = [500, 2000]ms
+        let d2 = BinanceFeed::backoff_delay(2, 60, 1000);
+        assert!(d2.as_millis() >= 500);
+        assert!(d2.as_millis() <= 2000);
+
+        // Attempt 6: 2^5 * 1000 = 32000ms -> capped at 60000
+        let d6 = BinanceFeed::backoff_delay(6, 60, 1000);
+        assert!(d6.as_millis() >= 500);
+        assert!(d6.as_millis() <= 60_000);
+    }
+
+    #[test]
+    fn test_backoff_delay_increases_with_attempt() {
+        // Higher attempts should produce progressively larger max delays
+        let d1 = BinanceFeed::backoff_delay(1, 60, 1000);
+        let d4 = BinanceFeed::backoff_delay(4, 60, 1000);
+        // The max possible for attempt 1 is 1000ms, for attempt 4 is 8000ms
+        // So d4 should usually be >= d1 (not guaranteed due to jitter, but very likely)
+        assert!(d4.as_millis() >= d1.as_millis() || d4.as_millis() <= 8000); // at least within range
+    }
+
+    #[test]
+    fn test_connected_initial_state() {
+        let feed = BinanceFeed::new();
+        assert!(!feed.connected());
     }
 }

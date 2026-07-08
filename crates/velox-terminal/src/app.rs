@@ -232,13 +232,16 @@ impl App {
 
     /// Poll for new market data. Called every frame before building UI.
     fn poll_market_data(&mut self) {
-        // 1. Poll the ring buffer → aggregate ticks → get candles
+        // 1. Update feed connection status from the WebSocket feed
+        self.state.set_feed_connected(self.feed.connected());
+
+        // 2. Poll the ring buffer → aggregate ticks → get candles
         let new_candles = self.pipeline.poll();
 
-        // 2. Drain the mpsc channel into AppState
+        // 3. Drain the mpsc channel into AppState
         let received = self.state.poll_candles();
 
-        // 3. Update pipeline metrics on state
+        // 4. Update pipeline metrics on state
         self.state.ticks_processed = self.pipeline.ticks_processed();
         self.state.candles_produced = self.pipeline.candles_produced();
 

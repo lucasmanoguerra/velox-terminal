@@ -284,6 +284,34 @@ Binance WS ──> RingBuffer ──> Pipeline.poll() ──> mpsc channel ─�
 
 ---
 
+---
+
+## 2026-07-08 — Multi-timeframe support (1m/5m/1h) with UI selector
+
+**Decision**: Expandir el pipeline de market data de 1m a multi-timeframe (1m/5m/1h) con almacenamiento en `HashMap<i64, Vec<Candle>>` y selector gráfico en la UI. AppState cambia de `Vec<Candle>` plano a un mapa keyed por `timeframe_secs`.
+
+**Problema resuelto**: El chart solo soportaba un timeframe fijo (60s). Para análisis multi-resolución (scalping en 1m, tendencia en 1h) se necesitaba almacenar velas de múltiples timeframes y switchear entre ellas sin perder datos.
+
+**Key changes**:
+- `AppState::candles_by_tf`: `HashMap<i64, Vec<Candle>>` almacena velas por timeframe
+- `AppState::empty(timeframes: &[i64])`: constructor parametrizado con lista de timeframes
+- `set_timeframe(tf)`: swap del bucket activo, recrea `ChartInteraction` con la nueva vista
+- `seconds_to_tf_label()`: formatea segundos a 1m/5m/1h/1D/1W/1M
+- `timeframe_labels()`: devuelve lista `(i64, String)` para UI
+- `poll_candles()`: drena canal a vec local para evitar conflictos de borrow checker con `self.reset_view()`
+- Pipeline configurado con `&[60, 300, 3600]` (1m, 5m, 1h)
+- UI: botones `selectable_label` en top bar, label de timeframe activo en status bar
+- 4 unit tests nuevos: `empty_with_timeframes`, `seconds_to_label`, `set_timeframe_switches_candles`, `theme_applies_without_panic`
+- 49 tests pasando, 0 warnings nuevos
+
+**Files changed**:
+- `crates/velox-ui/src/app_state.rs`: rewrite — HashMap multi-tf, set_timeframe, empty(timeframes), tests
+- `crates/velox-ui/src/panels.rs`: +timeframe selector buttons, +timeframe label in status bar
+- `crates/velox-terminal/src/app.rs`: `&[60, 300, 3600]` pipeline, `AppState::empty(timeframes)`
+- `crates/velox-md/src/ring_buffer.rs`: removed redundant `.clone()` on Copy types (clippy fix)
+
+---
+
 ### Technical Constraints
 
 1. **Perfiles de compilación**: OMS y Risk Management deben compilarse con perfil `ReleaseSafe`. El resto puede usar `ReleaseFast`.
