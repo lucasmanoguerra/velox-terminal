@@ -4,6 +4,50 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-08 — OMS + UI Integration (PaperTrader mock execution engine)
+
+**Decision**: Integrar la OMS (OrderManager) con la UI mediante un PaperTrader mock
+execution engine. Los botones Buy/Sell crean órdenes market que se ejecutan automáticamente
+al precio de cierre de la siguiente vela. Se implementa position tracking con weighted-average
+cost basis y P&L realizado/no realizado.
+
+**Problema resuelto**: Los botones Buy/Sell eran stubs (solo `tracing::info!`). No había
+forma de operar desde la UI. Las órdenes creadas no se ejecutaban en ningún motor de
+simulación.
+
+**Arquitectura**:
+- `PaperTrader` (nuevo, `velox-oms/src/paper_trader.rs`): Wrapper sobre OrderManager
+  - `submit_market_order(symbol, side, qty)` → `OrderManager::submit_order()`
+  - `execute_open_orders(symbol, price)` → fills `New` market orders en `Filled`
+  - `positions()` → compute positions on-the-fly desde fill history (weighted avg cost basis)
+  - `update_account()` → equity = cash + unrealized + realized P&L
+  - 7 tests: submit+execute, multiple buys averaging, partial reduce realized P&L,
+    account equity changes with price movement, cancel, zero-qty reject
+- `AppState`: +PaperTrader, `order_entry_qty`, `order_error`/`order_success` feedback
+- `panels.rs`: Order Entry (Buy green/Sell red buttons con qty slider + feedback),
+  Positions (open orders con X cancel, positions con P&L, account summary)
+- `app.rs`: `poll_market_data()` ejecuta `execute_open_orders(last_close)` cada frame
+
+**Data flow**:
+```
+Buy button → AppState::buy_market() → PaperTrader::submit_market_order()
+                                              ↓
+<poll_market_data> → execute_open_orders(close) → OrderManager::apply_fill()
+                                              ↓
+Positions panel ← PaperTrader::positions() (on-the-fly from fills)
+```
+
+**Files changed**: 5 files, +668−21 líneas.
+- `crates/velox-oms/src/paper_trader.rs` (nuevo, 267 líneas)
+- `crates/velox-oms/src/lib.rs` (+paper_trader export)
+- `crates/velox-ui/src/app_state.rs` (+PaperTrader, order_entry_qty, buy/sell/cancel methods)
+- `crates/velox-ui/src/panels.rs` (+order entry wiring, positions/account display)
+- `crates/velox-terminal/src/app.rs` (+mock execution hook in poll_market_data)
+
+**Tests**: 59 pasando (+7 PaperTrader), 0 clippy warnings.
+
+---
+
 ## 2026-07-08 — Indicator overlays on chart (SMA/EMA/RSI GPU lines)
 
 **Decision**: Implementar overlays de indicadores técnicos (SMA, EMA, RSI) renderizados como líneas GPU sobre el chart de velas. El pipeline de renderizado centralizado (`line_pipeline` en ChartRenderer) recibe datos desde OverlayManager, se procesan en CPU con NaN-aware segment splitting, y se renderizan con el pipeline `line.wgsl` v2 (vertex-buffer-based, per-vertex colors).

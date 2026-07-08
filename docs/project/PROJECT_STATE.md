@@ -29,11 +29,14 @@ Current state of the velox-terminal project.
 
 - Conectores a más exchanges (BingX, Bybit, Kraken)
 - Order book depth stream
-- OMS conectado con UI (botón Place Order → orden real)
 - Backtesting con slippage
 
 ## Completed Recently
 
+- **OMS + UI Integration**: PaperTrader mock execution engine with auto-fill at candle close
+  price, weighted-average position tracking, realized/unrealized P&L, account equity.
+  Buy/Sell buttons wired, Positions panel shows open orders (with cancel), positions with
+  P&L, and account summary.
 - **Indicadores overlay en chart**: SMA/EMA/RSI renderizados como líneas GPU
   (LineList vertex-buffer, per-vertex colors, NaN handling, UI toggles)
 
