@@ -312,6 +312,29 @@ Binance WS ──> RingBuffer ──> Pipeline.poll() ──> mpsc channel ─�
 
 ---
 
+## 2026-07-08 — Auto-reconnect WebSocket (exponential backoff + jitter)
+
+**Decision**: Envolver `BinanceFeed::run_loop()` en un reconnect loop con exponential backoff y full jitter. Cuando la conexión se cae (cierre del exchange, error de red, timeouts), el feed se reconecta automáticamente sin intervención del usuario.
+
+**Problema resuelto**: Binance desconecta WebSocket frecuentemente. Sin reconexión, el feed moría y el chart se quedaba congelado hasta que el usuario reiniciara la app.
+
+**Key changes**:
+- `run_loop` rewrite: `while running { try_connect → read_loop → on_disconnect → backoff → retry }`
+- Backoff: `base * 2^(attempt-1)` con full jitter (0–window), min 500ms, max 60s
+- `sleep_with_running_check()`: polls `running` cada 100ms — shutdown responsivo en <100ms
+- `feed_connected: AtomicBool` en `BinanceFeedInner`, actualizado en connect/disconnect
+- `BinanceFeed::connected()`: expone estado vía atomic load — sin locks
+- `App::poll_market_data()`: actualiza `state.feed_connected` desde el feed cada frame
+- `AtomicBool` define el estado de conexión real (WebSocket TCP conectado)
+- 3 tests nuevos: backoff ranges, progression, initial state (8 total exchange)
+- 50 tests pasando, 0 warnings nuevos
+
+**Files changed**:
+- `crates/velox-exchange/src/binance.rs`: rewrite — reconnect loop, backoff, sleep_with_running_check, connected(), feed_connected
+- `crates/velox-terminal/src/app.rs`: poll feed connection state per frame
+
+---
+
 ### Technical Constraints
 
 1. **Perfiles de compilación**: OMS y Risk Management deben compilarse con perfil `ReleaseSafe`. El resto puede usar `ReleaseFast`.

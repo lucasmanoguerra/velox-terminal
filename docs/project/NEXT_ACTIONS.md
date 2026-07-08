@@ -24,6 +24,7 @@ Próximas acciones priorizadas después del último avance.
 | Property-based tests OMS (proptest) | P2 | 2026-07-06 |
 | WebSocket market data feed real (Binance) | P2 | 2026-07-08 |
 | Multi-timeframe (1m/5m/1h) con selector UI | P2 | 2026-07-08 |
+| Auto-reconnect WebSocket con backoff exponencial + jitter | P2 | 2026-07-08 |
 
 ---
 
