@@ -1,8 +1,8 @@
 //! WGSL shader module compilation and caching.
 
+use crate::error::GpuError;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use crate::error::GpuError;
 use tracing::info;
 
 /// Compiles and caches WGSL shader modules.

@@ -12,16 +12,16 @@
 //! - `OverlayManager` — indicator overlay management
 //! - `ChartView` — visible price/time range
 
-pub mod renderer;
-pub mod overlay;
 pub mod interaction;
+pub mod overlay;
+pub mod renderer;
 
-pub use renderer::{
-    ChartRenderer, ChartUniforms, CandleGpuData, VolumeGpuData,
-    GridVertex, LinePointGpu, IndicatorOverlay,
-};
 pub use interaction::{ChartInteraction, ChartView};
 pub use overlay::OverlayManager;
+pub use renderer::{
+    CandleGpuData, ChartRenderer, ChartUniforms, GridVertex, IndicatorOverlay, LinePointGpu,
+    VolumeGpuData,
+};
 
 /// Initialize the charting engine.
 pub fn init() {

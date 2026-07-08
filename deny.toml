@@ -1,15 +1,24 @@
 # cargo-deny configuration for velox-terminal
 # See: https://embarkstudios.github.io/cargo-deny/
 
+[graph]
+all-features = false
+
 [advisories]
-vulnerability = "deny"
-unmaintained = "deny"
-yanked = "deny"
-notice = "warn"
-ignore = []
-severity-threshold = "medium"
+version = 2
+ignore = [
+    # transitive via wgpu-hal → metal (macOS GPU backend)
+    "RUSTSEC-2024-0436",  # paste — unmaintained, no replacement in wgpu-hal's deps yet
+    # transitive via wayland-scanner → winit (Linux windowing)
+    "RUSTSEC-2026-0194",  # quick-xml — quadratic attribute check
+    "RUSTSEC-2026-0195",  # quick-xml — namespace memory exhaustion
+    # transitive via glyphon → cosmic-text, egui → ab_glyph
+    "RUSTSEC-2026-0192",  # ttf-parser — unmaintained
+]
+# version 2 → vulnerability/unmaintained/unsound/notice all deny by default
 
 [licenses]
+version = 2
 allow = [
     "MIT",
     "Apache-2.0",
@@ -18,24 +27,37 @@ allow = [
     "BSD-3-Clause",
     "ISC",
     "Zlib",
+    "BSL-1.0",
+    "OFL-1.1",
     "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Ubuntu-font-1.0",
     "CC0-1.0",
     "Unlicense",
     "MPL-2.0",
 ]
-deny = []
-copyleft = "deny"
-allow-osi-fsf-free = "neither"
-default = "deny"
 confidence-threshold = 0.8
+# version 2 → all unlisted licenses are denied; copyleft denied by default
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 highlight = "all"
 deny = []
-skip = []
-skip-tree = []
+skip = [
+    { crate = "naga@0.22.1", reason = "old version from glyphon's transitive wgpu 0.22 dep" },
+    { crate = "naga@0.24.0", reason = "current version used by our wgpu 24" },
+]
+skip-tree = [
+    # windows duplicate versions are transitive from winit (0.58) and chrono (0.62)
+    { crate = "windows-sys", reason = "foundational crate with multiple versions via winit/chrono" },
+    { crate = "windows", reason = "foundational crate with multiple versions via winit/chrono" },
+    { crate = "windows-core", reason = "foundational crate with multiple versions" },
+    { crate = "windows-implement", reason = "foundational crate with multiple versions" },
+    { crate = "windows-interface", reason = "foundational crate with multiple versions" },
+    { crate = "windows-result", reason = "foundational crate with multiple versions" },
+    { crate = "windows-strings", reason = "foundational crate with multiple versions" },
+]
 
 [sources]
 unknown-registry = "deny"

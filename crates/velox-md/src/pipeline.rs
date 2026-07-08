@@ -45,7 +45,10 @@ impl MarketDataPipeline {
     /// `timeframes` are in seconds (e.g., `&[60, 300]` for 1m and 5m candles).
     ///
     /// Returns the pipeline and a receiver for completed candles.
-    pub fn new(ring: Arc<RingBuffer>, timeframes: &[i64]) -> (Self, mpsc::UnboundedReceiver<Candle>) {
+    pub fn new(
+        ring: Arc<RingBuffer>,
+        timeframes: &[i64],
+    ) -> (Self, mpsc::UnboundedReceiver<Candle>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let pipeline = Self {
             ring,

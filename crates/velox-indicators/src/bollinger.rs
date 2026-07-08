@@ -1,7 +1,7 @@
 //! Bollinger Bands — incremental O(1).
 
-use crate::traits::Indicator;
 use crate::sma::Sma;
+use crate::traits::Indicator;
 
 /// Bollinger Bands output.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -9,8 +9,8 @@ pub struct BollingerOutput {
     pub upper: f64,
     pub middle: f64,
     pub lower: f64,
-    pub bandwidth: f64,  // (upper - lower) / middle
-    pub percent_b: f64,  // (price - lower) / (upper - lower)
+    pub bandwidth: f64, // (upper - lower) / middle
+    pub percent_b: f64, // (price - lower) / (upper - lower)
 }
 
 /// Bollinger Bands with incremental O(1) update per bar.
@@ -42,7 +42,9 @@ impl BollingerBands {
         if self.buffer.len() < 2 {
             return 0.0;
         }
-        let variance = self.buffer.iter()
+        let variance = self
+            .buffer
+            .iter()
             .map(|v| {
                 let diff = v - mean;
                 diff * diff
@@ -80,7 +82,11 @@ impl Indicator<f64> for BollingerBands {
         let band = self.std_dev * std;
         let upper = middle + band;
         let lower = middle - band;
-        let bandwidth = if middle != 0.0 { (upper - lower) / middle.abs() } else { 0.0 };
+        let bandwidth = if middle != 0.0 {
+            (upper - lower) / middle.abs()
+        } else {
+            0.0
+        };
         let percent_b = if upper != lower {
             (value - lower) / (upper - lower)
         } else {

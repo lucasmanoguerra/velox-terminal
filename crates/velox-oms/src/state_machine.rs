@@ -1,7 +1,7 @@
 //! Order state machine with explicit transitions.
 
-use velox_core::OrderState;
 use crate::error::OmsError;
+use velox_core::OrderState;
 
 /// Validates state transitions for an order.
 /// Returns Err if the transition is invalid.
@@ -36,8 +36,8 @@ pub fn validate_transition(from: OrderState, to: OrderState) -> Result<(), OmsEr
         (PendingCancel, New) => true, // cancel rejected by broker
 
         // PendingReplace transitions
-        (PendingReplace, New) => true,     // replace accepted
-        (PendingReplace, Rejected) => true, // replace rejected
+        (PendingReplace, New) => true,           // replace accepted
+        (PendingReplace, Rejected) => true,      // replace rejected
         (PendingReplace, PendingCancel) => true, // cancel while replacing
 
         // Stopped transitions
@@ -93,8 +93,8 @@ pub fn all_valid_transitions() -> Vec<(OrderState, OrderState)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velox_core::OrderState::*;
     use proptest::prelude::*;
+    use velox_core::OrderState::*;
 
     // --- Unit tests ---
 
@@ -124,17 +124,28 @@ mod tests {
     fn test_terminal_states_have_no_outgoing() {
         let terminal = vec![Filled, Canceled, Rejected, Expired];
         let all_states = vec![
-            PendingNew, New, PartiallyFilled, Filled, Canceled,
-            Rejected, Expired, PendingCancel, PendingReplace, Stopped,
+            PendingNew,
+            New,
+            PartiallyFilled,
+            Filled,
+            Canceled,
+            Rejected,
+            Expired,
+            PendingCancel,
+            PendingReplace,
+            Stopped,
         ];
 
         for terminal_state in &terminal {
             for target in &all_states {
-                if terminal_state == target { continue; }
+                if terminal_state == target {
+                    continue;
+                }
                 assert!(
                     validate_transition(*terminal_state, *target).is_err(),
                     "Terminal state {:?} should not transition to {:?}",
-                    terminal_state, target
+                    terminal_state,
+                    target
                 );
             }
         }
@@ -144,12 +155,19 @@ mod tests {
     fn test_new_order_transitions() {
         // New can go to any of these
         let valid_targets = vec![
-            PartiallyFilled, Filled, Canceled, PendingCancel, Expired, Stopped, PendingReplace,
+            PartiallyFilled,
+            Filled,
+            Canceled,
+            PendingCancel,
+            Expired,
+            Stopped,
+            PendingReplace,
         ];
         for target in &valid_targets {
             assert!(
                 validate_transition(New, *target).is_ok(),
-                "New -> {:?} should be valid", target
+                "New -> {:?} should be valid",
+                target
             );
         }
     }
@@ -159,8 +177,16 @@ mod tests {
     #[expect(dead_code)]
     fn arb_order_state() -> impl Strategy<Value = OrderState> {
         prop::sample::select(vec![
-            PendingNew, New, PartiallyFilled, Filled, Canceled,
-            Rejected, Expired, PendingCancel, PendingReplace, Stopped,
+            PendingNew,
+            New,
+            PartiallyFilled,
+            Filled,
+            Canceled,
+            Rejected,
+            Expired,
+            PendingCancel,
+            PendingReplace,
+            Stopped,
         ])
     }
 

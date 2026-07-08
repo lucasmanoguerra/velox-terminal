@@ -1,11 +1,11 @@
 //! Pre-trade validators.
 
-use std::sync::Arc;
-use dashmap::DashMap;
-use chrono::Utc;
-use velox_core::{NewOrder, OrderId};
 use crate::error::RiskError;
 use crate::limits::RiskLimits;
+use chrono::Utc;
+use dashmap::DashMap;
+use std::sync::Arc;
+use velox_core::{NewOrder, OrderId};
 
 /// Result of a risk check.
 #[derive(Debug)]
@@ -18,9 +18,9 @@ pub enum RiskCheckResult {
 pub struct RiskValidator {
     limits: RiskLimits,
     #[expect(dead_code)]
-    positions: DashMap<String, f64>,       // symbol → current position
+    positions: DashMap<String, f64>, // symbol → current position
     #[expect(dead_code)]
-    daily_pnl: DashMap<String, f64>,       // symbol → daily P&L
+    daily_pnl: DashMap<String, f64>, // symbol → daily P&L
     order_timestamps: DashMap<OrderId, chrono::DateTime<chrono::Utc>>,
     circuit_breaker: Option<Arc<crate::circuit_breaker::CircuitBreaker>>,
 }
@@ -44,7 +44,9 @@ impl RiskValidator {
     /// Validate a new order against all risk rules.
     pub fn validate_order(&self, order: &NewOrder) -> RiskCheckResult {
         // 1. Symbol check
-        if !self.limits.allowed_symbols.is_empty() && !self.limits.allowed_symbols.contains(&order.symbol) {
+        if !self.limits.allowed_symbols.is_empty()
+            && !self.limits.allowed_symbols.contains(&order.symbol)
+        {
             return RiskCheckResult::Rejected(RiskError::SymbolNotAllowed {
                 symbol: order.symbol.clone(),
             });
@@ -69,7 +71,9 @@ impl RiskValidator {
 
         // 4. Order frequency
         let now = Utc::now();
-        let recent_count = self.order_timestamps.iter()
+        let recent_count = self
+            .order_timestamps
+            .iter()
             .filter(|entry| {
                 let age = now - *entry.value();
                 age.num_milliseconds() < 1000
@@ -83,14 +87,13 @@ impl RiskValidator {
         }
 
         // 5. Circuit breaker
-        if let Some(ref cb) = self.circuit_breaker {
-            if cb.is_triggered(&order.symbol) {
+        if let Some(ref cb) = self.circuit_breaker
+            && cb.is_triggered(&order.symbol) {
                 return RiskCheckResult::Rejected(RiskError::CircuitBreakerTriggered {
                     symbol: order.symbol.clone(),
                     reason: "Circuit breaker active".into(),
                 });
             }
-        }
 
         RiskCheckResult::Approved
     }

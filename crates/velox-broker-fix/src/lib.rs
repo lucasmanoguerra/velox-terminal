@@ -2,8 +2,8 @@
 //!
 //! FIX protocol implementation for institutional broker connectivity.
 
-pub mod session;
 pub mod messages;
+pub mod session;
 pub mod transport;
 
 /// Placeholder for FIX implementation.

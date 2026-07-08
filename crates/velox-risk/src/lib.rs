@@ -7,12 +7,12 @@
 
 #![forbid(unsafe_code)]
 
-pub mod validators;
-pub mod limits;
 pub mod circuit_breaker;
 pub mod error;
+pub mod limits;
+pub mod validators;
 
-pub use validators::*;
-pub use limits::*;
 pub use circuit_breaker::*;
 pub use error::*;
+pub use limits::*;
+pub use validators::*;

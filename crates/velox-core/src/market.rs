@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 /// A single trade tick.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Tick {
-    pub symbol: [u8; 8],     // ASCII symbol, zero-padded
+    pub symbol: [u8; 8], // ASCII symbol, zero-padded
     pub price: f64,
     pub volume: f64,
     pub timestamp: DateTime<Utc>,
-    pub conditions: u32,      // bitmask of trade conditions
+    pub conditions: u32, // bitmask of trade conditions
 }
 
 /// A top-of-book quote.

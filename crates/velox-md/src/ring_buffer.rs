@@ -2,8 +2,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use velox_core::Tick;
 use velox_core::Quote;
+use velox_core::Tick;
 
 /// A tick or quote event from the market data feed.
 #[derive(Debug, Clone)]
@@ -72,7 +72,8 @@ impl RingBuffer {
 
     /// Current length of the buffer.
     pub fn len(&self) -> usize {
-        (self.write_index.load(Ordering::Acquire) - self.read_index.load(Ordering::Acquire)) as usize
+        (self.write_index.load(Ordering::Acquire) - self.read_index.load(Ordering::Acquire))
+            as usize
     }
 
     pub fn is_empty(&self) -> bool {

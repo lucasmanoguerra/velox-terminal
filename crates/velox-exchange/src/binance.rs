@@ -27,20 +27,20 @@
 //! Binance allows up to 5 incoming messages per second per connection.
 //! This implementation stays well within that limit with a single combined stream.
 
+use futures_util::StreamExt;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use futures_util::StreamExt;
 use tokio::sync::Mutex;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use velox_core::{CoreError, Tick};
 use velox_md::ring_buffer::{MarketEvent, RingBuffer};
 
-use crate::error::ExchangeError;
 use crate::ExchangeFeed;
+use crate::error::ExchangeError;
 
 /// Binance WebSocket base URL for combined streams.
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/ws";
@@ -113,10 +113,7 @@ impl BinanceFeed {
     /// Build the combined stream path for subscribed symbols.
     fn build_stream_path(symbols: &[String]) -> String {
         // Binance combined stream: /stream?streams=btcusdt@trade/ethusdt@trade
-        let streams: Vec<String> = symbols
-            .iter()
-            .map(|s| format!("{}@trade", s))
-            .collect();
+        let streams: Vec<String> = symbols.iter().map(|s| format!("{}@trade", s)).collect();
         format!("/stream?streams={}", streams.join("/"))
     }
 
@@ -141,7 +138,7 @@ impl BinanceFeed {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default();
         // Mix attempt into the hash so different attempts get different jitter
-        let hash = (now.as_nanos() as u128) ^ ((attempt as u128) << 64);
+        let hash = now.as_nanos() ^ ((attempt as u128) << 64);
         let jitter_ms = (hash % (window_ms.max(1) as u128)) as u64;
 
         // Minimum 500ms between reconnects to avoid busy-looping
@@ -150,10 +147,7 @@ impl BinanceFeed {
 
     /// Wait for a duration, polling `running` every 100ms for responsiveness.
     /// Returns immediately if `running` becomes false.
-    async fn sleep_with_running_check(
-        inner: &BinanceFeedInner,
-        duration: Duration,
-    ) {
+    async fn sleep_with_running_check(inner: &BinanceFeedInner, duration: Duration) {
         let start = tokio::time::Instant::now();
         while start.elapsed() < duration {
             if !inner.running.load(Ordering::Acquire) {
@@ -176,18 +170,20 @@ impl ExchangeFeed for BinanceFeed {
 
         // If already running, just update the ring buffer target
         if inner.running.load(Ordering::Acquire) {
-            let mut guard = inner.ring.try_lock().map_err(|_| {
-                CoreError::Internal("ring buffer lock contention".into())
-            })?;
+            let mut guard = inner
+                .ring
+                .try_lock()
+                .map_err(|_| CoreError::Internal("ring buffer lock contention".into()))?;
             *guard = Some(ring);
             return Ok(());
         }
 
         // Mark as running
         inner.running.store(true, Ordering::Release);
-        *inner.ring.try_lock().map_err(|_| {
-            CoreError::Internal("ring buffer lock contention".into())
-        })? = Some(ring);
+        *inner
+            .ring
+            .try_lock()
+            .map_err(|_| CoreError::Internal("ring buffer lock contention".into()))? = Some(ring);
 
         // Clone inner for the tokio task
         let inner_task = inner.clone();
@@ -199,9 +195,10 @@ impl ExchangeFeed for BinanceFeed {
             inner_task.running.store(false, Ordering::Release);
         });
 
-        *inner.task_handle.try_lock().map_err(|_| {
-            CoreError::Internal("task handle lock contention".into())
-        })? = Some(handle);
+        *inner
+            .task_handle
+            .try_lock()
+            .map_err(|_| CoreError::Internal("task handle lock contention".into()))? = Some(handle);
 
         Ok(())
     }
@@ -222,16 +219,16 @@ impl ExchangeFeed for BinanceFeed {
 
     fn subscribe(&self, symbol: &str) -> Result<(), CoreError> {
         // Normalize: lowercase, remove hyphens (BTC-USDT → btcusdt)
-        let normalized = symbol
-            .to_lowercase()
-            .replace(['-', '/'], "");
+        let normalized = symbol.to_lowercase().replace(['-', '/'], "");
         if normalized.is_empty() {
             return Err(CoreError::InvalidSymbol(symbol.into()));
         }
 
-        let mut symbols = self.inner.symbols.try_lock().map_err(|_| {
-            CoreError::Internal("symbols lock contention".into())
-        })?;
+        let mut symbols = self
+            .inner
+            .symbols
+            .try_lock()
+            .map_err(|_| CoreError::Internal("symbols lock contention".into()))?;
 
         if !symbols.contains(&normalized) {
             symbols.push(normalized.clone());
@@ -243,9 +240,11 @@ impl ExchangeFeed for BinanceFeed {
 
     fn unsubscribe(&self, symbol: &str) -> Result<(), CoreError> {
         let normalized = symbol.to_lowercase().replace(['-', '/'], "");
-        let mut symbols = self.inner.symbols.try_lock().map_err(|_| {
-            CoreError::Internal("symbols lock contention".into())
-        })?;
+        let mut symbols = self
+            .inner
+            .symbols
+            .try_lock()
+            .map_err(|_| CoreError::Internal("symbols lock contention".into()))?;
 
         symbols.retain(|s| s != &normalized);
         tracing::info!("Binance feed unsubscribed from {normalized}");
@@ -280,11 +279,8 @@ impl BinanceFeed {
             let ws_url = format!("{}{}", BINANCE_WS_URL, stream_path);
 
             if attempt > 0 {
-                let delay = Self::backoff_delay(
-                    attempt,
-                    inner.max_reconnect_secs,
-                    inner.base_delay_ms,
-                );
+                let delay =
+                    Self::backoff_delay(attempt, inner.max_reconnect_secs, inner.base_delay_ms);
                 tracing::warn!(
                     "Binance reconnecting in {}ms (attempt {})",
                     delay.as_millis(),
@@ -364,15 +360,12 @@ impl BinanceFeed {
                             tracing::info!("Binance feed stopped gracefully");
                             break;
                         }
-                        Err(ExchangeError::StreamEnded)
-                        | Err(ExchangeError::WebSocket(_)) => {
+                        Err(ExchangeError::StreamEnded) | Err(ExchangeError::WebSocket(_)) => {
                             attempt += 1;
                             continue; // reconnect
                         }
                         Err(e) => {
-                            tracing::error!(
-                                "Binance feed unrecoverable error: {e}"
-                            );
+                            tracing::error!("Binance feed unrecoverable error: {e}");
                             break;
                         }
                     }
@@ -399,19 +392,13 @@ impl BinanceFeed {
 
         // Check for Binance error responses
         if let Some(code) = raw.get("code").and_then(|c| c.as_i64()) {
-            let msg = raw
-                .get("msg")
-                .and_then(|m| m.as_str())
-                .unwrap_or("unknown");
+            let msg = raw.get("msg").and_then(|m| m.as_str()).unwrap_or("unknown");
             tracing::warn!("Binance API error [code {code}]: {msg}");
             return Err(ExchangeError::Exchange(format!("code {code}: {msg}")));
         }
 
         // Determine event type
-        let event_type = raw
-            .get("e")
-            .and_then(|e| e.as_str())
-            .unwrap_or("unknown");
+        let event_type = raw.get("e").and_then(|e| e.as_str()).unwrap_or("unknown");
 
         match event_type {
             "trade" => Self::handle_trade(inner, &raw),
@@ -424,7 +411,10 @@ impl BinanceFeed {
     }
 
     /// Handle a trade event (e.g., `btcusdt@trade`).
-    fn handle_trade(inner: &Arc<BinanceFeedInner>, raw: &serde_json::Value) -> Result<(), ExchangeError> {
+    fn handle_trade(
+        inner: &Arc<BinanceFeedInner>,
+        raw: &serde_json::Value,
+    ) -> Result<(), ExchangeError> {
         let symbol_raw = raw
             .get("s")
             .and_then(|s| s.as_str())
@@ -447,10 +437,7 @@ impl BinanceFeed {
             .and_then(|t| t.as_i64())
             .ok_or_else(|| ExchangeError::JsonParse("missing trade time".into()))?;
 
-        let is_maker_buy = raw
-            .get("m")
-            .and_then(|m| m.as_bool())
-            .unwrap_or(true);
+        let is_maker_buy = raw.get("m").and_then(|m| m.as_bool()).unwrap_or(true);
 
         // Convert symbol to [u8; 8] zero-padded ASCII
         let mut symbol_bytes = [0u8; 8];
@@ -460,8 +447,8 @@ impl BinanceFeed {
         symbol_bytes[..len].copy_from_slice(&bytes[..len]);
 
         // Convert timestamp to chrono::DateTime<Utc>
-        let timestamp = chrono::DateTime::from_timestamp_millis(trade_time)
-            .unwrap_or_else(chrono::Utc::now);
+        let timestamp =
+            chrono::DateTime::from_timestamp_millis(trade_time).unwrap_or_else(chrono::Utc::now);
 
         let tick = Tick {
             symbol: symbol_bytes,

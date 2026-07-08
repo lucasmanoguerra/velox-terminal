@@ -7,6 +7,12 @@ pub struct Vwap {
     // Placeholder for full implementation
 }
 
+impl Default for Vwap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Vwap {
     pub fn new() -> Self {
         Self {}

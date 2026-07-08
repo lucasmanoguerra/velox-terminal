@@ -1,9 +1,9 @@
 //! Chart overlays — indicators, drawings, annotations.
 
+use crate::IndicatorOverlay;
 use std::any::Any;
 use velox_core::Candle;
 use velox_indicators::traits::Indicator;
-use crate::IndicatorOverlay;
 
 /// Manages indicator overlays on the chart.
 ///
@@ -71,8 +71,15 @@ impl<I: Indicator<f64, Output = f64> + Send + Sync + 'static> AnyOverlay for Ove
         // For now we return a stub since line rendering requires GPU context
         struct StubOverlay;
         impl IndicatorOverlay for StubOverlay {
-            fn name(&self) -> &str { "stub" }
-            fn render<'a>(&'a self, _pass: &mut wgpu::RenderPass<'a>, _uniforms: &crate::renderer::ChartUniforms) {}
+            fn name(&self) -> &str {
+                "stub"
+            }
+            fn render<'a>(
+                &'a self,
+                _pass: &mut wgpu::RenderPass<'a>,
+                _uniforms: &crate::renderer::ChartUniforms,
+            ) {
+            }
         }
         &StubOverlay
     }

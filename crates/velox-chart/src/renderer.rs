@@ -1,15 +1,15 @@
 //! Chart renderer — sends candle/indicator geometry to GPU.
 
-use std::mem;
-use wgpu;
+use crate::interaction::ChartView;
 use bytemuck::{Pod, Zeroable};
+use std::mem;
+use tracing::info;
 use velox_core::Candle;
 use velox_gpu::device::GpuDevice;
 use velox_gpu::error::GpuError;
 use velox_gpu::pipeline::RenderPipelineManager;
 use velox_gpu::shaders::ShaderManager;
-use crate::interaction::ChartView;
-use tracing::info;
+use wgpu;
 
 // ── Data structures matching WGSL shaders ──────────────────────────
 
@@ -116,67 +116,62 @@ impl ChartRenderer {
         let shader_manager = ShaderManager::new(device);
 
         // ── Bind group layout ─────────────────────────────────────
-        let bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("chart_bind_group_layout"),
-                entries: &[
-                    // Binding 0: Uniform buffer (transforms, viewport)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: BIND_UNIFORMS,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("chart_bind_group_layout"),
+            entries: &[
+                // Binding 0: Uniform buffer (transforms, viewport)
+                wgpu::BindGroupLayoutEntry {
+                    binding: BIND_UNIFORMS,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    // Binding 1: Storage buffer (instance data)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: BIND_STORAGE,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                // Binding 1: Storage buffer (instance data)
+                wgpu::BindGroupLayoutEntry {
+                    binding: BIND_STORAGE,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                ],
-            });
+                    count: None,
+                },
+            ],
+        });
 
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("chart_pipeline_layout"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("chart_pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
 
         // Grid uses its own layout: uniform only (no storage binding)
         // The grid shader gets vertex data via set_vertex_buffer, not storage.
         let grid_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("grid_bind_group_layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: BIND_UNIFORMS,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: BIND_UNIFORMS,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                ],
+                    count: None,
+                }],
             });
 
-        let grid_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("grid_pipeline_layout"),
-                bind_group_layouts: &[&grid_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let grid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("grid_pipeline_layout"),
+            bind_group_layouts: &[&grid_bind_group_layout],
+            push_constant_ranges: &[],
+        });
 
         // ── Buffers ───────────────────────────────────────────────
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -242,20 +237,12 @@ impl ChartRenderer {
         )?;
 
         // Volume pipeline
-        let volume_pipeline = Self::create_volume_pipeline(
-            device,
-            &mut pipeline_manager,
-            &pipeline_layout,
-            format,
-        )?;
+        let volume_pipeline =
+            Self::create_volume_pipeline(device, &mut pipeline_manager, &pipeline_layout, format)?;
 
         // Line overlay pipeline
-        let line_pipeline = Self::create_line_pipeline(
-            device,
-            &mut pipeline_manager,
-            &pipeline_layout,
-            format,
-        )?;
+        let line_pipeline =
+            Self::create_line_pipeline(device, &mut pipeline_manager, &pipeline_layout, format)?;
 
         // ── Create bind groups ───────────────────────────────────
         let candle_bind_group = Self::create_storage_bind_group(
@@ -278,12 +265,10 @@ impl ChartRenderer {
         let grid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("grid_bg"),
             layout: &grid_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: BIND_UNIFORMS,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: BIND_UNIFORMS,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
         });
 
         info!("ChartRenderer initialized");
@@ -561,9 +546,15 @@ impl ChartRenderer {
             .collect();
 
         let data_size = (gpu_data.len() * mem::size_of::<CandleGpuData>()) as u64;
-        Self::ensure_buffer_size(&mut self.candle_buffer, &self.device, "candle_data", data_size);
+        Self::ensure_buffer_size(
+            &mut self.candle_buffer,
+            &self.device,
+            "candle_data",
+            data_size,
+        );
 
-        self.queue.write_buffer(&self.candle_buffer, 0, bytemuck::cast_slice(&gpu_data));
+        self.queue
+            .write_buffer(&self.candle_buffer, 0, bytemuck::cast_slice(&gpu_data));
 
         // Recreate bind group with updated buffer
         self.candle_bind_group = Self::create_storage_bind_group(
@@ -591,19 +582,23 @@ impl ChartRenderer {
 
         let gpu_data: Vec<VolumeGpuData> = candles
             .iter()
-            .map(|c| {
-                VolumeGpuData {
-                    timestamp: c.timestamp.timestamp() as f32,
-                    volume: (c.volume / max_vol) as f32,
-                    is_up: if c.is_bullish() { 1 } else { 0 },
-                    _padding: 0,
-                }
+            .map(|c| VolumeGpuData {
+                timestamp: c.timestamp.timestamp() as f32,
+                volume: (c.volume / max_vol) as f32,
+                is_up: if c.is_bullish() { 1 } else { 0 },
+                _padding: 0,
             })
             .collect();
 
         let data_size = (gpu_data.len() * mem::size_of::<VolumeGpuData>()) as u64;
-        Self::ensure_buffer_size(&mut self.volume_buffer, &self.device, "volume_data", data_size);
-        self.queue.write_buffer(&self.volume_buffer, 0, bytemuck::cast_slice(&gpu_data));
+        Self::ensure_buffer_size(
+            &mut self.volume_buffer,
+            &self.device,
+            "volume_data",
+            data_size,
+        );
+        self.queue
+            .write_buffer(&self.volume_buffer, 0, bytemuck::cast_slice(&gpu_data));
 
         self.volume_bind_group = Self::create_storage_bind_group(
             &self.device,
@@ -617,11 +612,7 @@ impl ChartRenderer {
     }
 
     /// Update grid lines (horizontal price levels, vertical time levels).
-    pub fn update_grid(
-        &mut self,
-        price_levels: &[f32],
-        time_levels: &[f32],
-    ) {
+    pub fn update_grid(&mut self, price_levels: &[f32], time_levels: &[f32]) {
         let mut vertices = Vec::new();
 
         // Horizontal lines (price levels): (0, price) → (viewport_width, price)
@@ -642,23 +633,23 @@ impl ChartRenderer {
         }
 
         let data_size = (vertices.len() * mem::size_of::<GridVertex>()) as u64;
-        Self::ensure_buffer_size(&mut self.grid_vertex_buffer, &self.device, "grid_vertices", data_size);
-        self.queue.write_buffer(
-            &self.grid_vertex_buffer,
-            0,
-            bytemuck::cast_slice(&vertices),
+        Self::ensure_buffer_size(
+            &mut self.grid_vertex_buffer,
+            &self.device,
+            "grid_vertices",
+            data_size,
         );
+        self.queue
+            .write_buffer(&self.grid_vertex_buffer, 0, bytemuck::cast_slice(&vertices));
 
         // Rebuild grid bind group (uniform only — no storage binding)
         self.grid_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("grid_bg"),
             layout: &self.grid_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: BIND_UNIFORMS,
-                    resource: self.uniform_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: BIND_UNIFORMS,
+                resource: self.uniform_buffer.as_entire_binding(),
+            }],
         });
 
         self.num_grid_vertices = vertices.len() as u32;
@@ -666,11 +657,8 @@ impl ChartRenderer {
 
     /// Update uniform buffer with viewport transform.
     pub fn update_uniforms(&self, uniforms: &ChartUniforms) {
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::bytes_of(uniforms),
-        );
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
     }
 
     // ── Rendering ─────────────────────────────────────────────────
@@ -782,7 +770,12 @@ impl ChartRenderer {
     }
 
     /// Resize a buffer if it's too small for the required data size.
-    fn ensure_buffer_size(buffer: &mut wgpu::Buffer, device: &wgpu::Device, label: &str, required_size: u64) {
+    fn ensure_buffer_size(
+        buffer: &mut wgpu::Buffer,
+        device: &wgpu::Device,
+        label: &str,
+        required_size: u64,
+    ) {
         if buffer.size() >= required_size {
             return;
         }

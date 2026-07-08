@@ -8,8 +8,8 @@
 //!
 //! This prevents conflicts: scrolling over a side panel does NOT zoom the chart.
 
-use winit::event::{WindowEvent, MouseButton, ElementState, MouseScrollDelta};
 use velox_ui::app_state::AppState;
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 
 /// Route a window event to the chart interaction handler.
 ///
@@ -30,7 +30,9 @@ pub fn route_to_chart(event: &WindowEvent, state: &mut AppState, scale_factor: f
             if is_over_chart(cx, cy, rect, scale_factor) {
                 let chart_x = rect.min.x as f64 * scale_factor;
                 let chart_w = rect.width() as f64 * scale_factor;
-                state.chart_interaction.zoom_scroll(y_delta, cx, chart_x, chart_w);
+                state
+                    .chart_interaction
+                    .zoom_scroll(y_delta, cx, chart_x, chart_w);
                 state.needs_redraw = true;
                 true
             } else {
@@ -79,7 +81,9 @@ pub fn route_to_chart(event: &WindowEvent, state: &mut AppState, scale_factor: f
             if state.chart_interaction.is_dragging() {
                 let chart_w = rect.width() as f64 * scale_factor;
                 let chart_h = rect.height() as f64 * scale_factor;
-                state.chart_interaction.update_pan(position.x, position.y, chart_w, chart_h);
+                state
+                    .chart_interaction
+                    .update_pan(position.x, position.y, chart_w, chart_h);
                 state.needs_redraw = true;
             }
 

@@ -16,21 +16,21 @@
 
 #![allow(deprecated)] // TODO: migrate from EventLoop::run → run_app
 
-use std::sync::Arc;
+use crate::input;
 use std::iter;
-use winit::window::Window;
-use winit::event_loop::ActiveEventLoop;
+use std::sync::Arc;
+use velox_chart::renderer::ChartRenderer;
+use velox_exchange::ExchangeFeed;
+use velox_exchange::binance::BinanceFeed;
 use velox_gpu::device::GpuDevice;
 use velox_gpu::error::GpuError;
-use velox_chart::renderer::ChartRenderer;
-use velox_exchange::binance::BinanceFeed;
-use velox_exchange::ExchangeFeed;
-use velox_md::ring_buffer::RingBuffer;
 use velox_md::pipeline::MarketDataPipeline;
+use velox_md::ring_buffer::RingBuffer;
 use velox_ui::app_state::AppState;
 use velox_ui::panels::PanelManager;
 use velox_ui::theme as ui_theme;
-use crate::input;
+use winit::event_loop::ActiveEventLoop;
+use winit::window::Window;
 
 /// Helper: render egui into a render pass, working around the `'static` lifetime
 /// requirement of `egui_wgpu::Renderer::render()`.
@@ -67,8 +67,7 @@ unsafe fn render_egui_with_pass(
     // never stores the reference. The encoder lives for the duration of composite_render,
     // which is longer than this render call. This transmute is equivalent to what
     // frameworks like egui's own examples do when dealing with short-lived encoders.
-    let pass_static: &mut wgpu::RenderPass<'static> =
-        unsafe { std::mem::transmute(&mut pass) };
+    let pass_static: &mut wgpu::RenderPass<'static> = unsafe { std::mem::transmute(&mut pass) };
     renderer.render(pass_static, primitives, screen_descriptor);
 }
 
@@ -260,7 +259,8 @@ impl App {
             } => {
                 self.surface_config.width = size.width.max(1);
                 self.surface_config.height = size.height.max(1);
-                self.surface.configure(&self.gpu.device, &self.surface_config);
+                self.surface
+                    .configure(&self.gpu.device, &self.surface_config);
                 self.state.needs_redraw = true;
                 self.window.request_redraw();
             }
@@ -299,10 +299,7 @@ impl App {
             // ── Window events (input routing) ──────────────────
             winit::event::Event::WindowEvent { event, .. } => {
                 // 1. Always feed egui first
-                let response = self.egui_state.on_window_event(
-                    &self.window,
-                    &event,
-                );
+                let response = self.egui_state.on_window_event(&self.window, &event);
 
                 // 2. If egui didn't consume it, route to chart
                 if !response.consumed {
@@ -378,7 +375,9 @@ impl App {
                 return Ok(());
             }
         };
-        let frame_view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let frame_view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         // ── 5. Create encoder ──────────────────────────────────
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -391,10 +390,7 @@ impl App {
             pixels_per_point: scale,
         };
 
-        let clipped_primitives = self.egui_ctx.tessellate(
-            full_output.shapes,
-            scale,
-        );
+        let clipped_primitives = self.egui_ctx.tessellate(full_output.shapes, scale);
 
         // Update egui textures (needs encoder, not pass)
         for (id, delta) in &full_output.textures_delta.set {

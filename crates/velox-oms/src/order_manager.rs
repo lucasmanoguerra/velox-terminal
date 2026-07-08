@@ -1,10 +1,10 @@
 //! Order manager — handles order lifecycle.
 
-use std::collections::HashMap;
-use velox_core::{Order, OrderId, OrderState, NewOrder, Fill, Side};
 use crate::error::OmsError;
 use crate::state_machine::validate_transition;
 use chrono::Utc;
+use std::collections::HashMap;
+use velox_core::{Fill, NewOrder, Order, OrderId, OrderState, Side};
 
 /// Maximum allowed order quantity.
 const MAX_ORDER_QUANTITY: f64 = 1_000_000.0;
@@ -69,20 +69,31 @@ impl OrderManager {
 
     /// Apply a fill to an order.
     pub fn apply_fill(&mut self, fill: Fill) -> Result<(), OmsError> {
-        let order = self.orders.get_mut(&fill.order_id)
+        let order = self
+            .orders
+            .get_mut(&fill.order_id)
             .ok_or_else(|| OmsError::OrderNotFound(fill.order_id.0.to_string()))?;
 
         // Check if order is in a fillable state
         match order.state {
-            OrderState::New | OrderState::PartiallyFilled => {},
-            OrderState::Filled => return Err(OmsError::Rejected(
-                "Cannot fill an already filled order".into())),
-            OrderState::Canceled => return Err(OmsError::Rejected(
-                "Cannot fill a canceled order".into())),
-            OrderState::Rejected => return Err(OmsError::Rejected(
-                "Cannot fill a rejected order".into())),
-            _ => return Err(OmsError::Rejected(format!(
-                "Cannot fill order in state {:?}", order.state))),
+            OrderState::New | OrderState::PartiallyFilled => {}
+            OrderState::Filled => {
+                return Err(OmsError::Rejected(
+                    "Cannot fill an already filled order".into(),
+                ));
+            }
+            OrderState::Canceled => {
+                return Err(OmsError::Rejected("Cannot fill a canceled order".into()));
+            }
+            OrderState::Rejected => {
+                return Err(OmsError::Rejected("Cannot fill a rejected order".into()));
+            }
+            _ => {
+                return Err(OmsError::Rejected(format!(
+                    "Cannot fill order in state {:?}",
+                    order.state
+                )));
+            }
         }
 
         let new_filled = order.filled_quantity + fill.quantity;
@@ -97,12 +108,12 @@ impl OrderManager {
 
         // Update order
         order.filled_quantity = new_filled;
-        order.avg_fill_price = Some(
-            match order.avg_fill_price {
-                Some(avg) => ((avg * (new_filled - fill.quantity)) + (fill.price * fill.quantity)) / new_filled,
-                None => fill.price,
+        order.avg_fill_price = Some(match order.avg_fill_price {
+            Some(avg) => {
+                ((avg * (new_filled - fill.quantity)) + (fill.price * fill.quantity)) / new_filled
             }
-        );
+            None => fill.price,
+        });
         order.updated_at = Utc::now();
 
         // Transition state
@@ -118,20 +129,26 @@ impl OrderManager {
 
     /// Cancel an order.
     pub fn cancel_order(&mut self, order_id: OrderId) -> Result<(), OmsError> {
-        let order = self.orders.get(&order_id)
+        let order = self
+            .orders
+            .get(&order_id)
             .ok_or_else(|| OmsError::OrderNotFound(order_id.0.to_string()))?;
 
         // Check if order is already in a terminal state
         match order.state {
-            OrderState::Filled => return Err(OmsError::Rejected(
-                "Cannot cancel a filled order".into())),
-            OrderState::Canceled => return Err(OmsError::Rejected(
-                "Order is already canceled".into())),
-            OrderState::Rejected => return Err(OmsError::Rejected(
-                "Cannot cancel a rejected order".into())),
-            OrderState::Expired => return Err(OmsError::Rejected(
-                "Cannot cancel an expired order".into())),
-            _ => {},
+            OrderState::Filled => {
+                return Err(OmsError::Rejected("Cannot cancel a filled order".into()));
+            }
+            OrderState::Canceled => {
+                return Err(OmsError::Rejected("Order is already canceled".into()));
+            }
+            OrderState::Rejected => {
+                return Err(OmsError::Rejected("Cannot cancel a rejected order".into()));
+            }
+            OrderState::Expired => {
+                return Err(OmsError::Rejected("Cannot cancel an expired order".into()));
+            }
+            _ => {}
         }
 
         self.transition_order(order_id, OrderState::PendingCancel)?;
@@ -146,20 +163,28 @@ impl OrderManager {
         new_stop_price: Option<f64>,
         new_quantity: Option<f64>,
     ) -> Result<(), OmsError> {
-        let order = self.orders.get(&order_id)
+        let order = self
+            .orders
+            .get(&order_id)
             .ok_or_else(|| OmsError::OrderNotFound(order_id.0.to_string()))?;
 
         // Only New or PartiallyFilled orders can be replaced
         match order.state {
-            OrderState::New | OrderState::PartiallyFilled => {},
-            _ => return Err(OmsError::Rejected(format!(
-                "Cannot replace order in state {:?}", order.state))),
+            OrderState::New | OrderState::PartiallyFilled => {}
+            _ => {
+                return Err(OmsError::Rejected(format!(
+                    "Cannot replace order in state {:?}",
+                    order.state
+                )));
+            }
         }
 
         // New quantity must be >= filled quantity
         if let Some(qty) = new_quantity {
             if qty <= 0.0 {
-                return Err(OmsError::Rejected("Replacement quantity must be positive".into()));
+                return Err(OmsError::Rejected(
+                    "Replacement quantity must be positive".into(),
+                ));
             }
             if qty < order.filled_quantity {
                 return Err(OmsError::Rejected(format!(
@@ -205,9 +230,7 @@ impl OrderManager {
 
     /// Get all orders filtered by state.
     pub fn orders_by_state(&self, state: OrderState) -> Vec<&Order> {
-        self.orders.values()
-            .filter(|o| o.state == state)
-            .collect()
+        self.orders.values().filter(|o| o.state == state).collect()
     }
 
     /// Get a reference to an order.
@@ -225,8 +248,14 @@ impl OrderManager {
         &self.fills
     }
 
-    fn transition_order(&mut self, order_id: OrderId, new_state: OrderState) -> Result<(), OmsError> {
-        let order = self.orders.get_mut(&order_id)
+    fn transition_order(
+        &mut self,
+        order_id: OrderId,
+        new_state: OrderState,
+    ) -> Result<(), OmsError> {
+        let order = self
+            .orders
+            .get_mut(&order_id)
             .ok_or_else(|| OmsError::OrderNotFound(order_id.0.to_string()))?;
 
         validate_transition(order.state, new_state)?;
@@ -339,7 +368,8 @@ mod tests {
         new_order.price = Some(4500.0);
         let order_id = om.submit_order(new_order).unwrap();
 
-        om.replace_order(order_id, Some(4510.0), None, None).unwrap();
+        om.replace_order(order_id, Some(4510.0), None, None)
+            .unwrap();
 
         let order = om.get_order(&order_id).unwrap();
         assert_eq!(order.price, Some(4510.0));

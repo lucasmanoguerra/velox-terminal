@@ -1,8 +1,8 @@
 //! Circuit breaker — halts trading for a symbol when triggered.
 
+use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use chrono::{Utc, DateTime};
 
 /// Reason for circuit breaker trigger.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,11 +49,10 @@ impl CircuitBreaker {
                 return false;
             }
             // Check cooldown
-            if let Some(cooldown) = breaker.cooldown_until {
-                if Utc::now() >= cooldown {
+            if let Some(cooldown) = breaker.cooldown_until
+                && Utc::now() >= cooldown {
                     return false; // cooldown expired
                 }
-            }
             return true;
         }
         false
@@ -63,12 +62,15 @@ impl CircuitBreaker {
     pub fn trigger(&self, symbol: &str, reason: CircuitBreakerReason) {
         let mut breakers = self.breakers.lock().unwrap();
         let now = Utc::now();
-        breakers.insert(symbol.to_string(), SymbolBreaker {
-            triggered: true,
-            reason,
-            triggered_at: Some(now),
-            cooldown_until: Some(now + chrono::Duration::seconds(self.cooldown_secs)),
-        });
+        breakers.insert(
+            symbol.to_string(),
+            SymbolBreaker {
+                triggered: true,
+                reason,
+                triggered_at: Some(now),
+                cooldown_until: Some(now + chrono::Duration::seconds(self.cooldown_secs)),
+            },
+        );
     }
 
     /// Reset the circuit breaker for a symbol.

@@ -5,7 +5,7 @@ use velox_core::{Candle, Tick};
 
 /// Manages candle aggregation for a symbol across multiple timeframes.
 pub struct CandleAggregator {
-    timeframes: Vec<i64>,         // seconds
+    timeframes: Vec<i64>, // seconds
     current_candles: HashMap<(String, i64), CandleBuilder>,
 }
 
@@ -24,9 +24,10 @@ impl CandleAggregator {
 
         for &tf in &self.timeframes {
             let key = (symbol_str.clone(), tf);
-            let builder = self.current_candles.entry(key).or_insert_with(|| {
-                CandleBuilder::new(tick.symbol, tick.timestamp, tf)
-            });
+            let builder = self
+                .current_candles
+                .entry(key)
+                .or_insert_with(|| CandleBuilder::new(tick.symbol, tick.timestamp, tf));
 
             if let Some(candle) = builder.add_tick(tick) {
                 completed.push(candle);
@@ -111,7 +112,11 @@ impl CandleBuilder {
         Candle {
             symbol: self.symbol,
             open: self.open,
-            high: if self.high == f64::MIN { 0.0 } else { self.high },
+            high: if self.high == f64::MIN {
+                0.0
+            } else {
+                self.high
+            },
             low: if self.low == f64::MAX { 0.0 } else { self.low },
             close: self.close,
             volume: self.volume,
@@ -123,7 +128,10 @@ impl CandleBuilder {
     }
 }
 
-fn align_timestamp(ts: chrono::DateTime<chrono::Utc>, timeframe_secs: i64) -> chrono::DateTime<chrono::Utc> {
+fn align_timestamp(
+    ts: chrono::DateTime<chrono::Utc>,
+    timeframe_secs: i64,
+) -> chrono::DateTime<chrono::Utc> {
     let unix = ts.timestamp();
     let aligned = unix - (unix % timeframe_secs);
     chrono::DateTime::from_timestamp(aligned, 0).unwrap_or(ts)

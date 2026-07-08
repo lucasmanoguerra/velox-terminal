@@ -296,10 +296,10 @@ mod tests {
         let mut state = AppState::empty(&[60, 300]);
 
         // Manually insert candles into the 5m bucket
-        state.candles_by_tf.insert(300, vec![
-            make_candle(300, 50000.0),
-            make_candle(300, 50100.0),
-        ]);
+        state.candles_by_tf.insert(
+            300,
+            vec![make_candle(300, 50000.0), make_candle(300, 50100.0)],
+        );
 
         // Switch to 5m
         state.set_timeframe(300);

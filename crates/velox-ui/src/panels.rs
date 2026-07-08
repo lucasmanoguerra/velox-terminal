@@ -4,8 +4,8 @@
 //! positions panel, and status bar. The chart area rect is recorded into
 //! `AppState` for the GPU renderer to use.
 
-use egui;
 use crate::app_state::AppState;
+use egui;
 
 /// Manages the panel layout and UI state.
 pub struct PanelManager;
@@ -72,9 +72,7 @@ impl PanelManager {
                         }
                         ui.label(format!(
                             "Frame {} | T:{} C:{}",
-                            state.frame_count,
-                            state.ticks_processed,
-                            state.candles_produced,
+                            state.frame_count, state.ticks_processed, state.candles_produced,
                         ));
                     });
                 });

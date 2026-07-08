@@ -6,12 +6,12 @@
 //! orders, trades, quotes, symbols, and error types.
 //! No I/O, no complex logic — just types.
 
-pub mod order;
-pub mod market;
 pub mod error;
+pub mod market;
+pub mod order;
 pub mod types;
 
-pub use order::*;
-pub use market::*;
 pub use error::*;
+pub use market::*;
+pub use order::*;
 pub use types::*;

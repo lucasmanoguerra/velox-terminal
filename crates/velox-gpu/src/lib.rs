@@ -26,10 +26,10 @@
 
 pub mod device;
 pub mod error;
-pub mod shaders;
 pub mod pipeline;
+pub mod shaders;
 
 pub use device::GpuDevice;
 pub use error::GpuError;
+pub use pipeline::{PipelineDesc, RenderPipelineManager};
 pub use shaders::ShaderManager;
-pub use pipeline::{RenderPipelineManager, PipelineDesc};

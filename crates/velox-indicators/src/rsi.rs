@@ -39,8 +39,10 @@ impl Indicator<f64> for Rsi {
                 self.gain_sum += gain;
                 self.loss_sum += loss;
             } else {
-                self.gain_sum = (self.gain_sum * (self.period as f64 - 1.0) + gain) / self.period as f64;
-                self.loss_sum = (self.loss_sum * (self.period as f64 - 1.0) + loss) / self.period as f64;
+                self.gain_sum =
+                    (self.gain_sum * (self.period as f64 - 1.0) + gain) / self.period as f64;
+                self.loss_sum =
+                    (self.loss_sum * (self.period as f64 - 1.0) + loss) / self.period as f64;
             }
         }
 

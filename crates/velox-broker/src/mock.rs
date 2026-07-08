@@ -1,8 +1,8 @@
 //! Mock broker for testing and paper trading.
 
-use async_trait::async_trait;
-use velox_core::{NewOrder, OrderId, Position, AccountInfo, CoreError};
 use crate::client::{BrokerClient, BrokerConfig, ConnectionHandle};
+use async_trait::async_trait;
+use velox_core::{AccountInfo, CoreError, NewOrder, OrderId, Position};
 
 /// A simulated broker for paper trading and testing.
 pub struct MockBroker {
@@ -11,7 +11,9 @@ pub struct MockBroker {
 
 impl MockBroker {
     pub fn new(name: &str) -> Self {
-        Self { name: name.to_string() }
+        Self {
+            name: name.to_string(),
+        }
     }
 }
 

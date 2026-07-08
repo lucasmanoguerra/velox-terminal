@@ -5,9 +5,9 @@
 //! Designed for efficient storage and retrieval of market data.
 //! Partitioned by symbol and date for fast queries.
 
+pub mod compression;
 pub mod engine;
 pub mod schema;
-pub mod compression;
 
 /// Placeholder for storage implementation.
 /// Full implementation in Phase 3.

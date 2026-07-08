@@ -1,10 +1,10 @@
 //! Render pipeline creation and caching.
 
-use std::collections::HashMap;
-use wgpu;
 use crate::error::GpuError;
 use crate::shaders::ShaderManager;
+use std::collections::HashMap;
 use tracing::info;
+use wgpu;
 
 /// Describes a render pipeline for creation.
 pub struct PipelineDesc<'a> {
@@ -114,16 +114,20 @@ impl RenderPipelineManager {
         self.shader_manager.load_builtin(&desc.vs_name)?;
         self.shader_manager.load_builtin(&desc.fs_name)?;
 
-        let vs_module = self.shader_manager.get(&desc.vs_name)
-            .ok_or_else(|| GpuError::PipelineCreation {
-                name: name.to_string(),
-                details: format!("Vertex shader '{}' not found after loading", desc.vs_name),
-            })?;
-        let fs_module = self.shader_manager.get(&desc.fs_name)
-            .ok_or_else(|| GpuError::PipelineCreation {
-                name: name.to_string(),
-                details: format!("Fragment shader '{}' not found after loading", desc.fs_name),
-            })?;
+        let vs_module =
+            self.shader_manager
+                .get(&desc.vs_name)
+                .ok_or_else(|| GpuError::PipelineCreation {
+                    name: name.to_string(),
+                    details: format!("Vertex shader '{}' not found after loading", desc.vs_name),
+                })?;
+        let fs_module =
+            self.shader_manager
+                .get(&desc.fs_name)
+                .ok_or_else(|| GpuError::PipelineCreation {
+                    name: name.to_string(),
+                    details: format!("Fragment shader '{}' not found after loading", desc.fs_name),
+                })?;
 
         let pipeline_desc = wgpu::RenderPipelineDescriptor {
             label: Some(&format!("pipeline_{}", name)),

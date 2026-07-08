@@ -1,7 +1,7 @@
 //! Broker client trait.
 
 use async_trait::async_trait;
-use velox_core::{NewOrder, OrderId, Position, AccountInfo, CoreError};
+use velox_core::{AccountInfo, CoreError, NewOrder, OrderId, Position};
 
 /// Configuration for connecting to a broker.
 #[derive(Debug, Clone)]

@@ -20,10 +20,10 @@
 
 #![forbid(unsafe_code)]
 
-pub mod state_machine;
-pub mod order_manager;
 pub mod error;
+pub mod order_manager;
+pub mod state_machine;
 
-pub use state_machine::*;
-pub use order_manager::*;
 pub use error::*;
+pub use order_manager::*;
+pub use state_machine::*;

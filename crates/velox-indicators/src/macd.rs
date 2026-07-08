@@ -1,7 +1,7 @@
 //! MACD (Moving Average Convergence Divergence) — incremental O(1).
 
-use crate::traits::Indicator;
 use crate::ema::Ema;
+use crate::traits::Indicator;
 
 /// MACD output values.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,10 +22,16 @@ pub struct Macd {
 
 impl Macd {
     pub fn new(fast_period: usize, slow_period: usize, signal_period: usize) -> Self {
-        assert!(fast_period > 0 && slow_period > 0 && signal_period > 0,
-            "MACD periods must be > 0");
-        assert!(fast_period < slow_period,
-            "fast_period ({}) must be < slow_period ({})", fast_period, slow_period);
+        assert!(
+            fast_period > 0 && slow_period > 0 && signal_period > 0,
+            "MACD periods must be > 0"
+        );
+        assert!(
+            fast_period < slow_period,
+            "fast_period ({}) must be < slow_period ({})",
+            fast_period,
+            slow_period
+        );
         Self {
             fast_ema: Ema::new(fast_period),
             slow_ema: Ema::new(slow_period),

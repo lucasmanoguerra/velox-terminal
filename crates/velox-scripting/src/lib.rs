@@ -5,9 +5,9 @@
 //! Supports Lua (via mlua) with sandboxed execution environment.
 //! Resource limits: CPU time, memory, call depth, execution timeout.
 
+pub mod api;
 pub mod engine;
 pub mod sandbox;
-pub mod api;
 
 /// Placeholder for scripting implementation.
 /// Full implementation in Phase 6.

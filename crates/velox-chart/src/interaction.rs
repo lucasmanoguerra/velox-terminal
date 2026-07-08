@@ -126,13 +126,7 @@ impl ChartInteraction {
     /// `mouse_x` is the x-coordinate of the mouse in pixels.
     /// `chart_x` is the x-coordinate of the chart area in pixels.
     /// `chart_width` is the width of the chart area in pixels.
-    pub fn zoom_at(
-        &mut self,
-        factor: f64,
-        mouse_x: f64,
-        chart_x: f64,
-        chart_width: f64,
-    ) {
+    pub fn zoom_at(&mut self, factor: f64, mouse_x: f64, chart_x: f64, chart_width: f64) {
         // Push current view to stack before modifying
         if self.zoom_stack.len() < self.max_zoom_stack {
             self.zoom_stack.push(self.view.clone());
@@ -145,13 +139,7 @@ impl ChartInteraction {
     /// Zoom with scroll wheel delta.
     ///
     /// `delta` is the scroll delta (positive = zoom in, negative = zoom out).
-    pub fn zoom_scroll(
-        &mut self,
-        delta: f64,
-        mouse_x: f64,
-        chart_x: f64,
-        chart_width: f64,
-    ) {
+    pub fn zoom_scroll(&mut self, delta: f64, mouse_x: f64, chart_x: f64, chart_width: f64) {
         // Each scroll tick zooms by ~10%
         let factor = if delta > 0.0 { 0.9 } else { 1.1 };
         self.zoom_at(factor, mouse_x, chart_x, chart_width);
@@ -169,13 +157,7 @@ impl ChartInteraction {
 
     /// Update pan during drag.
     /// `chart_width` and `chart_height` are the chart area dimensions in pixels.
-    pub fn update_pan(
-        &mut self,
-        mouse_x: f64,
-        mouse_y: f64,
-        chart_width: f64,
-        chart_height: f64,
-    ) {
+    pub fn update_pan(&mut self, mouse_x: f64, mouse_y: f64, chart_width: f64, chart_height: f64) {
         if !self.is_dragging {
             return;
         }
