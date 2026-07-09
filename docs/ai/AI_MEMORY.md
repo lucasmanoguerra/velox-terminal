@@ -469,6 +469,31 @@ User clicks Follow → follow_mode = true → snaps to newest
 
 ---
 
+## 2026-07-09 — RingBuffer::pop_n batch tick consumption
+
+**Decision**: Agregar `RingBuffer::pop_n()` para consumir hasta `max` eventos
+del ring buffer con solo 2 atomic loads + 1 store, reemplazando el loop de
+`pop()` (3 atomics por evento) en MarketDataPipeline.
+
+**Problema resuelto**: Cada tick requería 3 operaciones atómicas (2 loads +
+1 store) en el ring buffer. Con cientos de ticks por frame, el overhead
+atómico se acumulaba. `pop_n` lee el write_index una vez, extrae hasta
+`max` eventos usando lecturas planas (no atómicas), y avanza el read_index
+una sola vez.
+
+**Key changes**:
+- `ring_buffer.rs`: +`pop_n(&self, buf: &mut Vec<MarketEvent>, max: usize) → usize`
+  - Lee read/write una vez, calcula count = min(available, max)
+  - Extrae eventos con índice modular (power-of-two mask)
+  - Almacena read_index una vez al final (Release ordering)
+  - 6 tests: límite máximo, todos disponibles, orden FIFO, vacío,
+    wrap-around completo, max=0
+- `pipeline.rs`: `poll()` ahora usa `pop_n(&mut batch, 128)` en loop de
+  drenaje con `Vec::drain()`, reusando el buffer entre iteraciones
+- 71 tests pasando, 0 clippy warnings
+
+---
+
 ## 2026-07-08 — Hexagonal architecture + community standards + CI fixes
 
 **Decision**: Adopt Hexagonal (Ports & Adapters) + UNIX philosophy as the architectural guide. Create community files (CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md). Fix CI pipeline failures (fmt, clippy, cargo-deny).

@@ -32,6 +32,9 @@ Current state of the velox-terminal project.
 
 ## Completed Recently
 
+- **RingBuffer::pop_n batch tick consumption**: Batch-aware ring buffer reduces
+  atomic operations from 3-per-tick to 3-per-batch. Pipeline uses pop_n(128) in
+  a drain loop, reusing the Vec between frames.
 - **Horizontal scrollbar + follow mode**: Scrollbar slider at bottom of chart
   for navigating historical candles. Follow mode auto-scrolls to newest data.
   Toggle with 🔒Follow/🔓Free button.

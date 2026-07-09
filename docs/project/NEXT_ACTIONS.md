@@ -29,6 +29,7 @@ Próximas acciones priorizadas después del último avance.
 | **Indicadores overlay en chart** (SMA/EMA/RSI GPU lines) | **P1** | **2026-07-08** |
 | **DOM ladder / Order Book Depth** (Binance @depth20@100ms) | **P1** | **2026-07-08** |
 | **Scrollbar horizontal + follow mode** | **P1** | **2026-07-09** |
+| **RingBuffer::pop_n batch tick consumption** | **P1** | **2026-07-09** |
 
 ---
 
@@ -40,7 +41,7 @@ Próximas acciones priorizadas después del último avance.
 
 ### P1 — Inmediato (construir sobre el flujo end-to-end)
 
-- [ ] **CandleAggregator multi-tick fix** — pipeline consume ticks en lote (RingBuffer.pop_n) en vez de 1 por frame
+- [ ] **OVERRIDE — NADA. Todos los P1 están completos.**
 
 ### P2 — Próximo (features de trading real)
 
@@ -71,13 +72,13 @@ Próximas acciones priorizadas después del último avance.
 
 ## Suggested Next Task
 
-**P1 · CandleAggregator multi-tick (RingBuffer.pop_n)**
+**P2 · Conector Binance REST + WebSocket para Account/Balances**
 
-El único P1 que queda es la optimización de procesamiento de ticks. El pipeline ya
-consume todos los ticks disponibles por frame (drain loop), pero cada tick hace
-atomics individuales. Una versión `pop_n(&mut Vec, n)` reduciría los fences de
-memoria al procesar batches.
+Todos los P1 están completos. El siguiente paso lógico es integrar la terminal
+con cuentas reales de Binance:
 
-1. `RingBuffer::pop_n(&self, buf: &mut Vec<MarketEvent>, max: usize) → usize`
-2. `MarketDataPipeline::poll()` usaría `pop_n` en vez de `pop` en loop
-3. Test: verificar que pop_n retorna hasta `max` eventos sin perder datos
+1. Implementar `BinanceAccountFeed` — conecta a streams de balance/ordenes (`@account`)
+2. Implementar `BinanceRestClient` — consultar balances, histórico de trades, comisiones
+3. OMS → envío real de órdenes via REST a Binance (con autenticación HMAC-SHA256)
+4. Manejo seguro de API keys (keyring nativo del SO)
+5. Pruebas con sandbox/testnet de Binance
