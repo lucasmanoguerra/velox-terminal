@@ -25,6 +25,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velox_broker::{BrokerClient, BrokerConfig};
+use velox_exchange::keyring as keyring_helper;
 use velox_chart::interaction::{ChartInteraction, ChartView};
 use velox_chart::overlay::OverlayManager;
 use velox_core::{Candle, NewOrder, Order, OrderBook, OrderId, OrderType, Position, Side, TimeInForce};
@@ -234,6 +235,24 @@ impl AppState {
         self.broker_connected = false;
         self.trading_mode = TradingMode::Paper;
         self.broker_error = None;
+    }
+
+    /// Try to load saved broker credentials from the OS keyring.
+    ///
+    /// If found, pre-fills the connect fields so the user only needs to
+    /// click "Connect". Silently ignores errors (keyring unavailable, etc.).
+    pub fn load_keys_from_keyring(&mut self) {
+        match keyring_helper::load() {
+            Ok(Some(config)) => {
+                self.connect_api_key = config.api_key;
+                self.connect_api_secret = config.api_secret;
+                self.connect_base_url = config.base_url;
+            }
+            Ok(None) => { /* no saved credentials */ }
+            Err(e) => {
+                tracing::debug!("Keyring load skipped: {e}");
+            }
+        }
     }
 
     /// Set the receiver for live candle data from the market data pipeline.

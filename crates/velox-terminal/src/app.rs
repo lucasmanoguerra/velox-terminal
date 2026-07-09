@@ -23,6 +23,7 @@ use velox_broker::{BrokerClient, BrokerConfig};
 use velox_chart::renderer::ChartRenderer;
 use velox_exchange::binance::BinanceFeed;
 use velox_exchange::binance_broker::BinanceBroker;
+use velox_exchange::keyring as keyring_helper;
 use velox_exchange::ExchangeFeed;
 use velox_gpu::device::GpuDevice;
 use velox_gpu::error::GpuError;
@@ -163,6 +164,7 @@ impl App {
         let (pipeline, candle_rx) = MarketDataPipeline::new(ring.clone(), timeframes);
         let mut state = AppState::empty(timeframes);
         state.set_candle_receiver(candle_rx);
+        state.load_keys_from_keyring(); // pre-fill API keys if saved
 
         // ── Chart Renderer ──────────────────────────────────────────
         let mut chart_renderer = ChartRenderer::new(&gpu, surface_config.format)?;
@@ -364,12 +366,22 @@ impl App {
                         }
                     });
                     self.state.set_broker(broker, config);
+
+                    // Save credentials to OS keyring (best-effort)
+                    if let Err(e) = keyring_helper::save(self.state.broker_config.as_ref().unwrap()) {
+                        tracing::debug!("Keyring save skipped: {e}");
+                    }
                 }
 
                 // ── Handle broker disconnect request ───────────
                 if self.state.disconnect_requested {
                     self.state.disconnect_requested = false;
                     self.state.clear_broker();
+
+                    // Remove saved credentials from OS keyring (best-effort)
+                    if let Err(e) = keyring_helper::delete() {
+                        tracing::debug!("Keyring delete skipped: {e}");
+                    }
                 }
 
                 // Poll market data (non-blocking)

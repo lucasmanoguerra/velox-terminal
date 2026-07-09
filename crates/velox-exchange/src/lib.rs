@@ -30,6 +30,7 @@ pub mod binance_broker;
 pub mod binance_rest;
 pub mod binance_user_data;
 pub mod error;
+pub mod keyring;
 pub mod r#trait;
 
 pub use error::ExchangeError;

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use velox_core::{AccountInfo, CoreError, NewOrder, OrderId, Position};
 
 /// Configuration for connecting to a broker.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BrokerConfig {
     pub api_key: String,
     pub api_secret: String,

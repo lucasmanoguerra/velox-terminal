@@ -7,6 +7,7 @@ repository.workspace = true
 
 [dependencies]
 velox-core = { path = "../velox-core" }
+velox-exchange = { path = "../velox-exchange" }
 velox-md = { path = "../velox-md" }
 velox-oms = { path = "../velox-oms" }
 velox-chart = { path = "../velox-chart" }
