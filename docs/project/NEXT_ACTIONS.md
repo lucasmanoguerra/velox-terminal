@@ -30,6 +30,11 @@ Próximas acciones priorizadas. Basado en el roadmap completo en `ROADMAP.md`.
 - [x] P&L: realizado + no realizado
 - [x] Account equity tracking
 - [x] Buy/Sell market buttons desde UI
+- [x] Limit/Stop orders (Market, Limit, Stop Market, Stop Limit)
+- [x] Bracket orders (TP/SL auto-create/cancel)
+- [x] Binance REST Client y User Data Stream
+- [x] BinanceBroker (BrokerClient impl.)
+- [x] Live/Paper trading toggle + API keyring storage
 
 ### UI/GPU
 - [x] ChartRenderer wgpu: grid, candle, volume, line pipelines
@@ -62,7 +67,7 @@ Próximas acciones priorizadas. Basado en el roadmap completo en `ROADMAP.md`.
 | # | Feature | Categoría | Dependencias | Esfuerzo |
 |---|---------|-----------|-------------|----------|
 | 6 | ~~**Limit/Stop orders** — entrada en UI y OMS~~ | ✅ | — | M |
-| 7 | **Bracket orders** (SL/TP + entrada) | Trading | #6 | M |
+| 7 | ~~**Bracket orders** (SL/TP + entrada)~~ | ✅ | #6 | M |
 | 8 | **VWAP + VWAP anclado** | Indicadores | — | S |
 | 9 | **Volume Profile** (session, anchored, visible range) | Order Flow | — | L |
 | 10 | **Heikin Ashi chart type** | Charting | — | M |

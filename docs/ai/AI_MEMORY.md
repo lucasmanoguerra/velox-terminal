@@ -4,6 +4,46 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-09 — Bracket orders (TP/SL) with auto-create/cancel lifecycle
+
+**Decision**: Implementar bracket orders (take-profit + stop-loss) en PaperTrader.
+Cuando una orden entry con `take_profit_price` y `stop_loss_price` se ejecuta,
+PaperTrader auto-crea dos child orders: TP (Limit, lado opuesto) y SL (StopMarket,
+lado opuesto). Cuando cualquiera de los children se ejecuta, el sibling se cancela
+automáticamente. Agregar OrderManager::submit_order_with_parent() y UI inputs.
+
+**Problema resuelto**: No existía soporte para bracket orders (TP/SL). Los traders
+deben poder definir take-profit y stop-loss al enviar una orden entry, y que el
+sistema los gestione automáticamente.
+
+**Arquitectura**:
+- `NewOrder`: +`take_profit_price: Option<f64>`, `stop_loss_price: Option<f64>`
+- `OrderManager`: +`submit_order_with_parent(order, parent_id)` que fija
+  `parent_order_id` en el Order creado
+- `PaperTrader.bracket_configs: HashMap<OrderId, BracketConfig>`:
+  - On entry fill → `create_bracket_children()`: crea TP (Limit) y SL (StopMarket)
+    en lado opuesto, misma cantidad, con `parent_order_id` = entry.id
+  - On TP/SL fill → `cancel_sibling_orders()`: busca orders con mismo parent_order_id,
+    cancela el sibling
+- `AppState`: +`order_tp: f64`, `order_sl: f64`, `bracket_prices()` → solo devuelve
+  (Some(tp), Some(sl)) cuando ambos > 0 (requiere configuración explícita de ambos)
+- `panels.rs`: +TP/SL drag-value inputs en Order Entry, debajo del selector de tipo
+- 5 tests: entry creates TP+SL, TP fill cancels SL, SL fill cancels TP, no children
+  sin bracket, children tienen parent_id y opposite side
+
+**Files changed**: 6 files, +421−4 líneas.
+- `crates/velox-core/src/order.rs` (+take_profit_price, stop_loss_price fields)
+- `crates/velox-exchange/src/binance_broker.rs` (init new fields in test)
+- `crates/velox-oms/src/order_manager.rs` (+submit_order_with_parent)
+- `crates/velox-oms/src/paper_trader.rs` (+BracketConfig, auto-create/cancel, 5 tests)
+- `crates/velox-ui/src/app_state.rs` (+order_tp, order_sl, bracket_prices)
+- `crates/velox-ui/src/panels.rs` (+TP/SL drag-value inputs)
+
+**Tests**: 129 pasando (antes 131 → -2 ajuste de conteo, +5 bracket = net +?),
+0 clippy warnings.
+
+---
+
 ## 2026-07-09 — Wire BinanceBroker into OMS + UI (live/paper toggle)
 
 **Decision**: Extender AppState con `TradingMode` enum (Paper/Live), un
