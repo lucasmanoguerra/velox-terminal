@@ -250,19 +250,18 @@ impl App {
             self.state.depth = Some(book);
         }
 
-        // 5. Mock execution: if we have new candles, fill open market orders at the last price
-        // Extract values first to avoid borrow conflicts.
-        let last_close = self.state.candles.last().map(|c| c.close);
-        if let Some(close) = last_close {
-            let filled = self.state.execute_open_orders(close);
+        // 5. Mock execution: fill open orders using latest OHLC values
+        let last_candle = self.state.candles.last().copied();
+        if let Some(candle) = last_candle {
+            let filled = self.state.execute_open_orders(candle.close, candle.high, candle.low);
             if filled > 0 {
-                tracing::info!("Mock fill: executed {filled} order(s) at {close:.2}");
+                tracing::info!("Mock fill: executed {filled} order(s) at {:.2}", candle.close);
                 self.state.update_account();
                 self.state.needs_redraw = true;
             }
             // Keep the paper trader in sync with latest price
             let sym = self.state.symbol.clone();
-            self.state.paper_trader.update_price(&sym, close);
+            self.state.paper_trader.update_price(&sym, candle.close);
         }
 
         // 5. Update pipeline metrics on state

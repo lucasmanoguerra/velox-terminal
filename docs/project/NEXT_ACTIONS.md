@@ -54,14 +54,14 @@ Próximas acciones priorizadas. Basado en el roadmap completo en `ROADMAP.md`.
 | 1 | **Binance REST Client** — balances, histórico, comisiones | Conectividad | — | M |
 | 2 | **Binance User Data Stream** (`@account`, `@balance`) | Conectividad | — | M |
 | 3 | **OMS → Broker real** — enviar órdenes a Binance via REST | Trading | #1, #2 | L |
-| 4 | **API Keys seguras** — keyring nativo del SO (keyring-rs) | Seguridad | — | S |
+| 4 | ~~**API Keys seguras** — keyring nativo del SO (keyring-rs)~~ | ✅ | — | S |
 | 5 | **Sandbox/Testnet Binance** — entorno de pruebas | Conectividad | — | S |
 
 ### P2 — Próximo (~2-4 semanas)
 
 | # | Feature | Categoría | Dependencias | Esfuerzo |
 |---|---------|-----------|-------------|----------|
-| 6 | **Limit/Stop orders** — entrada en UI y OMS | Trading | P1#3 | M |
+| 6 | ~~**Limit/Stop orders** — entrada en UI y OMS~~ | ✅ | — | M |
 | 7 | **Bracket orders** (SL/TP + entrada) | Trading | #6 | M |
 | 8 | **VWAP + VWAP anclado** | Indicadores | — | S |
 | 9 | **Volume Profile** (session, anchored, visible range) | Order Flow | — | L |

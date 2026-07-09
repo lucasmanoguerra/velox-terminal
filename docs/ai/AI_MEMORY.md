@@ -690,6 +690,88 @@ cada proyecto con stack, features clave, y qué aprender.
 
 ---
 
+## 2026-07-09 — Limit/Stop orders in PaperTrader + OrderEntry UI
+
+**Decision**: Extender PaperTrader con soporte para órdenes Limit, StopMarket y
+StopLimit, con ejecución simulada basada en precios OHLC de velas. Agregar
+selector de tipo de orden y campos condicionales de precio/stop en la UI.
+
+**Problema resuelto**: La UI solo soportaba órdenes Market. Los tipos Limit y Stop
+existían en el modelo de datos (`OrderType`, `NewOrder.price`, `NewOrder.stop_price`)
+pero no se podían usar desde la interfaz ni se ejecutaban en paper trading.
+
+**Arquitectura**:
+- `PaperTrader::submit_order(NewOrder)`: nuevo método genérico que reemplaza a
+  `submit_market_order` como entrada principal. `submit_market_order` sigue como
+  wrapper de compatibilidad.
+- `PaperTrader::execute_open_orders(symbol, close, high, low)`: ahora procesa
+  TODOS los `OrderState::New` (no solo Market), con dispatch por tipo:
+  - **Market**: fill inmediato a `close`
+  - **Limit**: fill a `order.price` cuando el precio lo cruza (low ≤ limit para buy,
+    high ≥ limit para sell)
+  - **StopMarket**: fill a `close` cuando el precio cruza el stop
+  - **StopLimit**: fill a `order.price` cuando el stop se activa Y el precio
+    cruza el límite
+- `AppState`: nuevos campos `order_type`, `order_price`, `order_stop_price`.
+  Métodos `buy()`/`sell()` genéricos que construyen `NewOrder` con todos los
+  campos.`submit_to_broker` refactorizado a `submit_new_order_to_broker(NewOrder)`.
+- `panels.rs`: ComboBox de tipo de orden (Market/Limit/Stop Market/Stop Limit),
+  inputs condicionales de Price (solo Limit/StopLimit) y Stop (solo StopMarket/StopLimit).
+  Botones Buy/Sell cableados a `state.buy()`/`state.sell()`.
+- `app.rs`: `poll_market_data` pasa `candle.close, candle.high, candle.low` a
+  `execute_open_orders`.
+- BinanceBrocker ya mapeaba todos los `OrderType` a Binance REST — sin cambios necesarios.
+
+**Tests**: +8 paper_trader tests (limit buy fill/not-fill, limit sell, stop market
+buy/sell, stop market not-triggered). 33 tests en velox-oms (antes 25). 131 tests
+totales en workspace (antes 114). 0 clippy warnings.
+
+**Files changed**: 4 files, +340−90 líneas.
+- `crates/velox-oms/src/paper_trader.rs` (rewrite: submit_order, should_fill_order, new tests)
+- `crates/velox-ui/src/app_state.rs` (+order_type/price/stop_price, buy/sell, build_order)
+- `crates/velox-ui/src/panels.rs` (+order type ComboBox, conditional price/stop inputs)
+- `crates/velox-terminal/src/app.rs` (pass high/low to execute_open_orders)
+
+---
+
+## 2026-07-09 — OS-native keyring for secure API key storage
+
+**Decision**: Implementar un módulo `keyring` en `velox-exchange` que usa
+`keyring::Entry` para guardar/recuperar/eliminar `BrokerConfig` (API key,
+secret, base URL) en el administrador de credenciales nativo del SO:
+Secret Service (Linux), Keychain (macOS), Credential Manager (Windows).
+
+**Problema resuelto**: Las API keys de Binance se hardcodeaban o se perdían
+entre sesiones. No había almacenamiento persistente y seguro de credenciales.
+
+**Arquitectura**:
+- `BrokerConfig` ahora deriva `serde::Serialize/Deserialize` — necesario para
+  guardar como JSON dentro del keyring.
+- `keyring::save(&BrokerConfig)` → serializa a JSON, llama `set_password()`.
+- `keyring::load()` → `get_password()`, deserializa, retorna `BrokerConfig`.
+- `keyring::delete()` → `delete_credential()`, no-error si no existe.
+- Identificador: `SERVICE_NAME = "velox-terminal"`, `USERNAME = "binance-api"`.
+- Fallback graceful: cualquier error del keyring (backend ausente, sin sesión
+  desktop, libsecret no instalado) → `tracing::debug!()` y se ignora. La app
+  nunca falla por keyring.
+- `AppState::load_keys_from_keyring()` → pre-fill de campos connect en startup.
+- `App::AboutToWait` handler: save tras connect exitoso, delete tras disconnect.
+- 3 tests: StoredConfig roundtrip, serialization, deserialization.
+
+**Files changed**: 8 files, +231−4 líneas.
+- `crates/velox-exchange/src/keyring.rs` (nuevo, 165 líneas)
+- `crates/velox-exchange/Cargo.toml` (+keyring, serde_json, velox-broker relocated)
+- `crates/velox-broker/src/client.rs` (+serde derives en BrokerConfig)
+- `crates/velox-ui/Cargo.toml` (+velox-exchange dep)
+- `crates/velox-ui/src/app_state.rs` (+import keyring, load_keys_from_keyring method)
+- `crates/velox-terminal/src/app.rs` (+import keyring, save/delete on connect/disconnect)
+- `Cargo.toml` (workspace: fixed duplicate keyring entry)
+- `Cargo.lock` (+keyring v3.6.3)
+
+**Tests**: 114 pasando (+3 keyring), 0 clippy warnings.
+
+---
+
 ### Technical Constraints
 
 1. **Perfiles de compilación**: OMS y Risk Management deben compilarse con perfil `ReleaseSafe`. El resto puede usar `ReleaseFast`.

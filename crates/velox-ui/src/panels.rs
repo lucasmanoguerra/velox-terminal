@@ -151,7 +151,7 @@ impl PanelManager {
 
                 ui.separator();
 
-                // Quantity slider
+                // Quantity
                 ui.horizontal(|ui| {
                     ui.label("Qty:");
                     ui.add(
@@ -162,19 +162,79 @@ impl PanelManager {
 
                 ui.separator();
 
+                // Order type selector
+                use velox_core::OrderType;
+                ui.horizontal(|ui| {
+                    ui.label("Type:");
+                    egui::ComboBox::from_id_salt("order_type")
+                        .selected_text(format!("{:?}", state.order_type))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.order_type,
+                                OrderType::Market,
+                                "Market",
+                            );
+                            ui.selectable_value(
+                                &mut state.order_type,
+                                OrderType::Limit,
+                                "Limit",
+                            );
+                            ui.selectable_value(
+                                &mut state.order_type,
+                                OrderType::StopMarket,
+                                "Stop Market",
+                            );
+                            ui.selectable_value(
+                                &mut state.order_type,
+                                OrderType::StopLimit,
+                                "Stop Limit",
+                            );
+                        });
+                });
+
+                // Limit price (for Limit and StopLimit)
+                if state.order_type == OrderType::Limit
+                    || state.order_type == OrderType::StopLimit
+                {
+                    ui.horizontal(|ui| {
+                        ui.label("Price:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.order_price)
+                                .speed(1.0)
+                                .prefix("$"),
+                        );
+                    });
+                }
+
+                // Stop price (for StopMarket and StopLimit)
+                if state.order_type == OrderType::StopMarket
+                    || state.order_type == OrderType::StopLimit
+                {
+                    ui.horizontal(|ui| {
+                        ui.label("Stop:");
+                        ui.add(
+                            egui::DragValue::new(&mut state.order_stop_price)
+                                .speed(1.0)
+                                .prefix("$"),
+                        );
+                    });
+                }
+
+                ui.separator();
+
                 // Buy / Sell buttons
                 ui.horizontal(|ui| {
                     let buy_btn = egui::Button::new("Buy")
                         .fill(egui::Color32::from_rgb(0, 80, 40))
                         .min_size(egui::vec2(70.0, 28.0));
                     if ui.add(buy_btn).clicked() {
-                        state.buy_market();
+                        state.buy();
                     }
                     let sell_btn = egui::Button::new("Sell")
                         .fill(egui::Color32::from_rgb(120, 30, 30))
                         .min_size(egui::vec2(70.0, 28.0));
                     if ui.add(sell_btn).clicked() {
-                        state.sell_market();
+                        state.sell();
                     }
                 });
 

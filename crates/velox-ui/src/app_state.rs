@@ -90,6 +90,15 @@ pub struct AppState {
     /// Current quantity in the order entry slider.
     pub order_entry_qty: f64,
 
+    /// Selected order type for the order entry panel.
+    pub order_type: OrderType,
+
+    /// Limit price (used for Limit and StopLimit orders).
+    pub order_price: f64,
+
+    /// Stop price (used for StopMarket and StopLimit orders).
+    pub order_stop_price: f64,
+
     /// Last order submission error (displayed briefly in UI).
     pub order_error: Option<String>,
 
@@ -163,6 +172,9 @@ impl AppState {
             feed_connected: false,
             paper_trader: PaperTrader::new(100_000.0),
             order_entry_qty: 0.01,
+            order_type: OrderType::Market,
+            order_price: 0.0,
+            order_stop_price: 0.0,
             order_error: None,
             order_success: None,
             depth: None,
@@ -202,6 +214,9 @@ impl AppState {
             feed_connected: false,
             paper_trader: PaperTrader::new(100_000.0),
             order_entry_qty: 0.01,
+            order_type: OrderType::Market,
+            order_price: 0.0,
+            order_stop_price: 0.0,
             order_error: None,
             order_success: None,
             depth: None,
@@ -396,15 +411,19 @@ impl AppState {
 
     // ── Order methods ─────────────────────────────────────────────────
 
-    /// Submit a buy market order with the current `order_entry_qty`.
+    /// Submit a buy order using the current `order_type`, `order_price`,
+    /// `order_stop_price`, and `order_entry_qty`.
     ///
     /// In Live mode the order is also forwarded to the broker asynchronously.
-    pub fn buy_market(&mut self) {
+    pub fn buy(&mut self) {
+        let side = Side::Buy;
         let sym = self.symbol.clone();
         let qty = self.order_entry_qty;
 
+        let new_order = self.build_order(side);
+
         // 1. Submit locally for position tracking
-        let order_id = match self.paper_trader.submit_market_order(&sym, Side::Buy, qty) {
+        let order_id = match self.paper_trader.submit_order(new_order.clone()) {
             Ok(id) => id,
             Err(e) => {
                 self.order_error = Some(e);
@@ -415,19 +434,23 @@ impl AppState {
 
         // 2. If live mode, also submit to broker
         if self.trading_mode == TradingMode::Live {
-            self.submit_to_broker(sym.clone(), Side::Buy, qty, order_id);
+            self.submit_new_order_to_broker(new_order);
         }
 
-        self.order_success = Some(format!("Buy {} {} (ID: {:.8})", qty, sym, order_id.0));
+        self.order_success =
+            Some(format!("{:?} {} {} (ID: {:.8})", side, qty, sym, order_id.0));
         self.order_error = None;
     }
 
-    /// Submit a sell market order with the current `order_entry_qty`.
-    pub fn sell_market(&mut self) {
+    /// Submit a sell order using the current order entry fields.
+    pub fn sell(&mut self) {
+        let side = Side::Sell;
         let sym = self.symbol.clone();
         let qty = self.order_entry_qty;
 
-        let order_id = match self.paper_trader.submit_market_order(&sym, Side::Sell, qty) {
+        let new_order = self.build_order(side);
+
+        let order_id = match self.paper_trader.submit_order(new_order.clone()) {
             Ok(id) => id,
             Err(e) => {
                 self.order_error = Some(e);
@@ -437,11 +460,34 @@ impl AppState {
         };
 
         if self.trading_mode == TradingMode::Live {
-            self.submit_to_broker(sym.clone(), Side::Sell, qty, order_id);
+            self.submit_new_order_to_broker(new_order);
         }
 
-        self.order_success = Some(format!("Sell {} {} (ID: {:.8})", qty, sym, order_id.0));
+        self.order_success =
+            Some(format!("{:?} {} {} (ID: {:.8})", side, qty, sym, order_id.0));
         self.order_error = None;
+    }
+
+    /// Build a `NewOrder` from the current order entry fields.
+    fn build_order(&self, side: Side) -> NewOrder {
+        let price = match self.order_type {
+            OrderType::Limit | OrderType::StopLimit => Some(self.order_price),
+            _ => None,
+        };
+        let stop_price = match self.order_type {
+            OrderType::StopMarket | OrderType::StopLimit => Some(self.order_stop_price),
+            _ => None,
+        };
+        NewOrder {
+            symbol: self.symbol.clone(),
+            side,
+            order_type: self.order_type,
+            quantity: self.order_entry_qty,
+            price,
+            stop_price,
+            time_in_force: TimeInForce::Day,
+            client_order_id: None,
+        }
     }
 
     /// Cancel an open order by ID.
@@ -469,22 +515,11 @@ impl AppState {
         }
     }
 
-    /// Shared helper: submit a market order to the broker in the background.
-    fn submit_to_broker(&self, symbol: String, side: Side, quantity: f64, order_id: OrderId) {
+    /// Shared helper: submit a NewOrder to the broker in the background.
+    fn submit_new_order_to_broker(&self, order: NewOrder) {
         let broker = match &self.broker {
             Some(b) => b.clone(),
             None => return,
-        };
-
-        let order = NewOrder {
-            symbol,
-            side,
-            order_type: OrderType::Market,
-            quantity,
-            price: None,
-            stop_price: None,
-            time_in_force: TimeInForce::Day,
-            client_order_id: Some(order_id.0.to_string()),
         };
 
         tokio::spawn(async move {
@@ -495,10 +530,10 @@ impl AppState {
         });
     }
 
-    /// Execute open market orders at the latest known price.
-    pub fn execute_open_orders(&mut self, price: f64) -> usize {
+    /// Execute open orders at the latest OHLC candle values.
+    pub fn execute_open_orders(&mut self, close: f64, high: f64, low: f64) -> usize {
         let sym = self.symbol.clone();
-        self.paper_trader.execute_open_orders(&sym, price)
+        self.paper_trader.execute_open_orders(&sym, close, high, low)
     }
 
     /// Access computed positions.
