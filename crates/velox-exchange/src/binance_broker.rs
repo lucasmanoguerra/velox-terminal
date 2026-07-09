@@ -202,7 +202,12 @@ impl BrokerClient for BinanceBroker {
             return Err(CoreError::Internal("Broker not connected".into()));
         }
 
-        let client_order_id = uuid::Uuid::new_v4().to_string();
+        // If caller provided a client_order_id, use it for idempotency;
+        // otherwise generate one.
+        let client_order_id = order
+            .client_order_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let our_order_id = OrderId::new();
 
         let (binance_order_id, symbol) = self

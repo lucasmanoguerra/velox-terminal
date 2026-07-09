@@ -5231,12 +5231,14 @@ dependencies = [
 name = "velox-ui"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "crossbeam",
  "egui",
  "egui-wgpu",
  "tokio",
  "tracing",
+ "velox-broker",
  "velox-chart",
  "velox-core",
  "velox-gpu",

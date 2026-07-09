@@ -19,9 +19,11 @@
 use crate::input;
 use std::iter;
 use std::sync::Arc;
+use velox_broker::{BrokerClient, BrokerConfig};
 use velox_chart::renderer::ChartRenderer;
-use velox_exchange::ExchangeFeed;
 use velox_exchange::binance::BinanceFeed;
+use velox_exchange::binance_broker::BinanceBroker;
+use velox_exchange::ExchangeFeed;
 use velox_gpu::device::GpuDevice;
 use velox_gpu::error::GpuError;
 use velox_md::pipeline::MarketDataPipeline;
@@ -338,6 +340,37 @@ impl App {
             // so the next RedrawRequested picks up any new candles.
             winit::event::Event::AboutToWait => {
                 self.state.frame_count += 1;
+
+                // ── Handle broker connect request ──────────────
+                if self.state.connect_requested {
+                    self.state.connect_requested = false;
+                    let broker = Arc::new(BinanceBroker::new());
+                    let config = BrokerConfig {
+                        api_key: std::mem::take(&mut self.state.connect_api_key),
+                        api_secret: std::mem::take(&mut self.state.connect_api_secret),
+                        base_url: if self.state.connect_base_url.is_empty() {
+                            "https://api.binance.com".into()
+                        } else {
+                            std::mem::take(&mut self.state.connect_base_url)
+                        },
+                        paper_trading: false,
+                    };
+                    let b = broker.clone();
+                    let c = config.clone();
+                    tokio::spawn(async move {
+                        match b.connect(c).await {
+                            Ok(h) => tracing::info!("Broker connected: {:?}", h),
+                            Err(e) => tracing::error!("Broker connect failed: {e}"),
+                        }
+                    });
+                    self.state.set_broker(broker, config);
+                }
+
+                // ── Handle broker disconnect request ───────────
+                if self.state.disconnect_requested {
+                    self.state.disconnect_requested = false;
+                    self.state.clear_broker();
+                }
 
                 // Poll market data (non-blocking)
                 self.poll_market_data();

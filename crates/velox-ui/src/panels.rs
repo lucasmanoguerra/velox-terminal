@@ -4,7 +4,7 @@
 //! positions panel, and status bar. The chart area rect is recorded into
 //! `AppState` for the GPU renderer to use.
 
-use crate::app_state::AppState;
+use crate::app_state::{AppState, TradingMode};
 use egui;
 use velox_indicators::{Ema, Rsi, Sma};
 
@@ -185,6 +185,77 @@ impl PanelManager {
                     ui.colored_label(egui::Color32::RED, err);
                 } else if let Some(ref ok) = state.order_success {
                     ui.colored_label(egui::Color32::GREEN, ok);
+                }
+
+                ui.separator();
+
+                // ── Broker config ─────────────────────────────────
+                ui.heading("Broker");
+                ui.separator();
+
+                if state.broker_connected {
+                    // ── Connected state ───────────────────────────
+                    ui.label("● Live");
+                    if let Some(ref cfg) = state.broker_config {
+                        ui.label(format!("Key: {}...", &cfg.api_key[..4.min(cfg.api_key.len())]));
+                    }
+                    if ui.button("Disconnect").clicked() {
+                        state.disconnect_requested = true;
+                    }
+                } else if state.connect_requested {
+                    // ── Connecting ────────────────────────────────
+                    ui.label("○ Connecting...");
+                    if let Some(ref err) = state.broker_error {
+                        ui.colored_label(egui::Color32::RED, err);
+                    }
+                } else {
+                    // ── Disconnected / paper ─────────────────────
+                    ui.label("○ Paper");
+
+                    // API Key input (masked display)
+                    ui.horizontal(|ui| {
+                        ui.label("API Key:");
+                        ui.add_sized(
+                            egui::vec2(120.0, 18.0),
+                            egui::TextEdit::singleline(&mut state.connect_api_key)
+                                .hint_text("Enter API key"),
+                        );
+                    });
+
+                    // Secret input
+                    ui.horizontal(|ui| {
+                        ui.label("Secret:");
+                        ui.add_sized(
+                            egui::vec2(120.0, 18.0),
+                            egui::TextEdit::singleline(&mut state.connect_api_secret)
+                                .hint_text("Enter API secret"),
+                        );
+                    });
+
+                    // Base URL input
+                    ui.horizontal(|ui| {
+                        ui.label("URL:");
+                        ui.add_sized(
+                            egui::vec2(120.0, 18.0),
+                            egui::TextEdit::singleline(&mut state.connect_base_url)
+                                .hint_text("https://api.binance.com"),
+                        );
+                    });
+
+                    if let Some(ref err) = state.broker_error {
+                        ui.colored_label(egui::Color32::RED, err);
+                    }
+
+                    let has_keys = !state.connect_api_key.is_empty()
+                        && !state.connect_api_secret.is_empty();
+                    if ui
+                        .add_enabled(has_keys, egui::Button::new("Connect"))
+                        .clicked()
+                        && has_keys
+                    {
+                        state.connect_requested = true;
+                    }
+                    ui.label("Testnet? Use testnet.binance.vision");
                 }
             });
 
@@ -514,17 +585,30 @@ impl PanelManager {
             .min_height(22.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
+                    // Feed connection
                     if state.feed_connected {
-                        ui.label("● Connected");
+                        ui.label("● Feed");
                     } else {
-                        ui.label("○ Disconnected");
+                        ui.label("○ Feed");
                     }
                     ui.separator();
-                    ui.label("Paper Trading");
+
+                    // Trading mode
+                    match state.trading_mode {
+                        TradingMode::Live if state.broker_connected => {
+                            ui.colored_label(egui::Color32::GREEN, "● Live");
+                        }
+                        TradingMode::Live => {
+                            ui.colored_label(egui::Color32::YELLOW, "◌ Connecting");
+                        }
+                        TradingMode::Paper => {
+                            ui.label("Paper");
+                        }
+                    }
                     ui.separator();
                     ui.label(state.timeframe_label());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(format!("{} · Live Feed", state.symbol));
+                        ui.label(format!("{} · velox-terminal", state.symbol));
                     });
                 });
             });

@@ -6,20 +6,38 @@
 //! # Live Data Flow
 //!
 //! 1. [`MarketDataPipeline`] polls the exchange feed's ring buffer and pushes
-//!    completed candles (for all timeframes) into an `mpsc::UnboundedReceiver`.
+//!    completed candles into an `mpsc::UnboundedReceiver`.
 //! 2. [`poll_candles`](AppState::poll_candles) drains the channel and stores
 //!    candles in a `HashMap<i64, Vec<Candle>>` keyed by `timeframe_secs`.
 //! 3. `self.candles` always reflects the **selected** timeframe's data.
 //! 4. The chart renderer reads `self.candles` to upload GPU buffers.
-//! 5. [`set_timeframe`](AppState::set_timeframe) swaps `self.candles` from
-//!    the hash map and re-scales the view.
+//!
+//! # Trading Modes
+//!
+//! - **Paper** (`TradingMode::Paper`): all orders go to [`PaperTrader`] with
+//!   auto-fill at candle close. No broker connection required.
+//! - **Live** (`TradingMode::Live`): orders are submitted to both [`PaperTrader`]
+//!   (for local position tracking) and an optional [`BrokerClient`] (for real
+//!   execution). Broker fills arrive via the User Data Stream and are applied
+//!   to the local order manager.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
+use velox_broker::{BrokerClient, BrokerConfig};
 use velox_chart::interaction::{ChartInteraction, ChartView};
 use velox_chart::overlay::OverlayManager;
-use velox_core::{Candle, Order, OrderBook, OrderId, Position, Side};
+use velox_core::{Candle, NewOrder, Order, OrderBook, OrderId, OrderType, Position, Side, TimeInForce};
 use velox_oms::PaperTrader;
+
+/// Trading mode — determines how orders are routed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TradingMode {
+    /// All orders are simulated locally (no broker connection needed).
+    Paper,
+    /// Orders are submitted to a real broker AND tracked locally.
+    Live,
+}
 
 /// Shared application state, mutated sequentially on the main thread.
 pub struct AppState {
@@ -42,7 +60,6 @@ pub struct AppState {
     pub overlays: OverlayManager,
 
     /// Area of the chart panel in egui logical pixels.
-    /// Set by `PanelManager::show()` every frame.
     pub chart_panel_rect: egui::Rect,
 
     /// Cursor position in physical (DPI-scaled) pixels.
@@ -83,18 +100,46 @@ pub struct AppState {
     pub depth: Option<OrderBook>,
 
     // ── Scrollbar / follow ─────────────────────────────────────────────
-    /// Normalized scroll position of the chart view (0.0 = oldest, 1.0 = newest).
-    /// Updated each frame from the chart interaction view.
+    /// Normalized scroll position of the chart view.
     pub scroll_pos: f64,
 
     /// Whether to auto-scroll to the newest data when new candles arrive.
     pub follow_mode: bool,
+
+    // ── Broker / live trading ──────────────────────────────────────────
+    /// Connected broker client (if any). Shared via Arc so async tasks can
+    /// hold a reference.
+    pub broker: Option<Arc<dyn BrokerClient>>,
+
+    /// Current trading mode.
+    pub trading_mode: TradingMode,
+
+    /// Broker config (API keys, endpoint). Stored here so the UI can
+    /// display/clear it.
+    pub broker_config: Option<BrokerConfig>,
+
+    /// Whether the broker is connected.
+    pub broker_connected: bool,
+
+    // ── Broker connection UI signals ────────────────────────────────
+    /// API key input from the UI (pending).
+    pub connect_api_key: String,
+    /// API secret input from the UI (pending).
+    pub connect_api_secret: String,
+    /// API base URL input from the UI (pending).
+    pub connect_base_url: String,
+    /// Set to `true` by the UI to request a broker connection.
+    /// Cleared by `app.rs` after processing.
+    pub connect_requested: bool,
+    /// Set to `true` by the UI to request a broker disconnect.
+    pub disconnect_requested: bool,
+    /// Last broker connection error.
+    pub broker_error: Option<String>,
 }
 
 impl AppState {
     /// Create a new `AppState` with initial candles.
     pub fn new(candles: Vec<Candle>) -> Self {
-        // Detect timeframe from first candle, default to 60s
         let tf = candles.first().map(|c| c.timeframe_secs).unwrap_or(60);
         let view = ChartView::from_candles(&candles);
         let mut map = HashMap::new();
@@ -122,11 +167,20 @@ impl AppState {
             depth: None,
             scroll_pos: 0.0,
             follow_mode: true,
+            broker: None,
+            trading_mode: TradingMode::Paper,
+            broker_config: None,
+            broker_connected: false,
+            connect_api_key: String::new(),
+            connect_api_secret: String::new(),
+            connect_base_url: String::new(),
+            connect_requested: false,
+            disconnect_requested: false,
+            broker_error: None,
         }
     }
 
-    /// Create an empty `AppState` (no initial candles, no chart view).
-    /// Used when the exchange feed will provide the first candles.
+    /// Create an empty `AppState` (no initial candles).
     pub fn empty(timeframes: &[i64]) -> Self {
         let tf = timeframes.first().copied().unwrap_or(60);
         Self {
@@ -152,7 +206,34 @@ impl AppState {
             depth: None,
             scroll_pos: 0.0,
             follow_mode: true,
+            broker: None,
+            trading_mode: TradingMode::Paper,
+            broker_config: None,
+            broker_connected: false,
+            connect_api_key: String::new(),
+            connect_api_secret: String::new(),
+            connect_base_url: String::new(),
+            connect_requested: false,
+            disconnect_requested: false,
+            broker_error: None,
         }
+    }
+
+    /// Set the broker client and switch to Live mode.
+    pub fn set_broker(&mut self, broker: Arc<dyn BrokerClient>, config: BrokerConfig) {
+        self.broker = Some(broker);
+        self.broker_config = Some(config);
+        self.broker_connected = true;
+        self.trading_mode = TradingMode::Live;
+    }
+
+    /// Remove the broker and revert to Paper mode.
+    pub fn clear_broker(&mut self) {
+        self.broker = None;
+        self.broker_config = None;
+        self.broker_connected = false;
+        self.trading_mode = TradingMode::Paper;
+        self.broker_error = None;
     }
 
     /// Set the receiver for live candle data from the market data pipeline.
@@ -161,14 +242,7 @@ impl AppState {
     }
 
     /// Poll the candle channel — call once per frame.
-    ///
-    /// Drains all available candles (for ALL timeframes) and stores them
-    /// in `candles_by_tf`. If a candle matches the currently selected
-    /// timeframe, it is also appended to `self.candles` so the chart updates.
-    ///
-    /// Returns the number of new candles received.
     pub fn poll_candles(&mut self) -> usize {
-        // Drain the channel into a local vec to avoid borrow conflicts
         let mut batch: Vec<Candle> = Vec::new();
         if let Some(rx) = &mut self.candle_rx {
             loop {
@@ -196,12 +270,10 @@ impl AppState {
             let bucket = self.candles_by_tf.entry(tf).or_default();
             bucket.push(candle);
 
-            // Keep a window of 500 per bucket
             if bucket.len() > 1000 {
                 bucket.drain(..bucket.len() - 500);
             }
 
-            // If this candle matches the active timeframe, update the view
             if tf == active_tf {
                 if !did_reset && was_empty {
                     self.reset_view();
@@ -209,11 +281,9 @@ impl AppState {
                 }
                 self.candles.push(candle);
 
-                // Auto-scroll to newest data if follow mode is active
                 if self.follow_mode && !self.candles.is_empty() {
                     let (_, data_end) = ChartInteraction::data_range(&self.candles);
                     if !self.chart_interaction.is_at_right_edge(data_end) {
-                        // Align right edge of view with newest data
                         let range = self.chart_interaction.view.time_range();
                         self.chart_interaction.view.time_end = data_end;
                         self.chart_interaction.view.time_start = data_end - range;
@@ -222,7 +292,6 @@ impl AppState {
             }
         }
 
-        // Window for the active candles too
         if self.candles.len() > 1000 {
             self.candles.drain(..self.candles.len() - 500);
         }
@@ -232,16 +301,12 @@ impl AppState {
     }
 
     /// Switch the active timeframe.
-    ///
-    /// Swaps `self.candles` from the hash map and re-calculates the chart view.
-    /// If the requested timeframe has no candles yet, the view is reset empty.
     pub fn set_timeframe(&mut self, tf: i64) {
         if !self.timeframes.contains(&tf) {
             return;
         }
         self.selected_timeframe = tf;
 
-        // Swap the active candle view
         if let Some(bucket) = self.candles_by_tf.get(&tf) {
             let new_view = ChartView::from_candles(bucket);
             self.candles = bucket.clone();
@@ -284,7 +349,6 @@ impl AppState {
     // ── Scrollbar ──────────────────────────────────────────────────────
 
     /// Sync `scroll_pos` from the current chart view and data range.
-    /// Call once per frame before building UI panels.
     pub fn sync_scroll_pos(&mut self) {
         if self.candles.is_empty() {
             self.scroll_pos = 0.0;
@@ -295,7 +359,6 @@ impl AppState {
     }
 
     /// Set the scroll position and update the chart view accordingly.
-    /// Called when the user drags the scrollbar.
     pub fn set_scroll_pos(&mut self, fraction: f64) {
         if self.candles.is_empty() {
             return;
@@ -315,39 +378,56 @@ impl AppState {
     // ── Order methods ─────────────────────────────────────────────────
 
     /// Submit a buy market order with the current `order_entry_qty`.
+    ///
+    /// In Live mode the order is also forwarded to the broker asynchronously.
     pub fn buy_market(&mut self) {
         let sym = self.symbol.clone();
         let qty = self.order_entry_qty;
-        match self.paper_trader.submit_market_order(&sym, Side::Buy, qty) {
-            Ok(id) => {
-                self.order_success = Some(format!("Buy {} {} (ID: {:.8})", qty, sym, id.0));
-                self.order_error = None;
-            }
+
+        // 1. Submit locally for position tracking
+        let order_id = match self.paper_trader.submit_market_order(&sym, Side::Buy, qty) {
+            Ok(id) => id,
             Err(e) => {
                 self.order_error = Some(e);
                 self.order_success = None;
+                return;
             }
+        };
+
+        // 2. If live mode, also submit to broker
+        if self.trading_mode == TradingMode::Live {
+            self.submit_to_broker(sym.clone(), Side::Buy, qty, order_id);
         }
+
+        self.order_success = Some(format!("Buy {} {} (ID: {:.8})", qty, sym, order_id.0));
+        self.order_error = None;
     }
 
     /// Submit a sell market order with the current `order_entry_qty`.
     pub fn sell_market(&mut self) {
         let sym = self.symbol.clone();
         let qty = self.order_entry_qty;
-        match self.paper_trader.submit_market_order(&sym, Side::Sell, qty) {
-            Ok(id) => {
-                self.order_success = Some(format!("Sell {} {} (ID: {:.8})", qty, sym, id.0));
-                self.order_error = None;
-            }
+
+        let order_id = match self.paper_trader.submit_market_order(&sym, Side::Sell, qty) {
+            Ok(id) => id,
             Err(e) => {
                 self.order_error = Some(e);
                 self.order_success = None;
+                return;
             }
+        };
+
+        if self.trading_mode == TradingMode::Live {
+            self.submit_to_broker(sym.clone(), Side::Sell, qty, order_id);
         }
+
+        self.order_success = Some(format!("Sell {} {} (ID: {:.8})", qty, sym, order_id.0));
+        self.order_error = None;
     }
 
     /// Cancel an open order by ID.
     pub fn cancel_order(&mut self, order_id: OrderId) {
+        // Cancel locally first
         match self.paper_trader.cancel_order(order_id) {
             Ok(()) => {
                 self.order_success = Some(format!("Canceled order {:.8}", order_id.0));
@@ -355,12 +435,48 @@ impl AppState {
             }
             Err(e) => {
                 self.order_error = Some(e);
+                return;
             }
+        }
+
+        // If live mode, also cancel at broker
+        if self.trading_mode == TradingMode::Live && let Some(ref broker) = self.broker {
+            let broker = broker.clone();
+            tokio::spawn(async move {
+                if let Err(e) = broker.cancel_order(order_id).await {
+                    tracing::error!("Broker cancel failed: {e}");
+                }
+            });
         }
     }
 
+    /// Shared helper: submit a market order to the broker in the background.
+    fn submit_to_broker(&self, symbol: String, side: Side, quantity: f64, order_id: OrderId) {
+        let broker = match &self.broker {
+            Some(b) => b.clone(),
+            None => return,
+        };
+
+        let order = NewOrder {
+            symbol,
+            side,
+            order_type: OrderType::Market,
+            quantity,
+            price: None,
+            stop_price: None,
+            time_in_force: TimeInForce::Day,
+            client_order_id: Some(order_id.0.to_string()),
+        };
+
+        tokio::spawn(async move {
+            match broker.submit_order(order).await {
+                Ok(id) => tracing::info!("Live order submitted: {:.8}", id.0),
+                Err(e) => tracing::error!("Live order failed: {e}"),
+            }
+        });
+    }
+
     /// Execute open market orders at the latest known price.
-    /// Called automatically during `poll_market_data()`.
     pub fn execute_open_orders(&mut self, price: f64) -> usize {
         let sym = self.symbol.clone();
         self.paper_trader.execute_open_orders(&sym, price)
@@ -388,9 +504,67 @@ impl AppState {
 
     /// Clear transient feedback messages.
     pub fn clear_feedback(&mut self) {
-        // Keep messages around for a frame; clear them after display
         self.order_error = None;
         self.order_success = None;
+    }
+}
+
+/// Minimal mock broker for test use.
+#[cfg(test)]
+struct MockBroker;
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl BrokerClient for MockBroker {
+    async fn connect(
+        &self,
+        _config: BrokerConfig,
+    ) -> Result<velox_broker::ConnectionHandle, velox_core::CoreError> {
+        Ok(velox_broker::ConnectionHandle {
+            broker: "mock".into(),
+            session_id: "mock-session".into(),
+        })
+    }
+
+    async fn disconnect(
+        &self,
+        _handle: &velox_broker::ConnectionHandle,
+    ) -> Result<(), velox_core::CoreError> {
+        Ok(())
+    }
+
+    async fn submit_order(
+        &self,
+        _order: NewOrder,
+    ) -> Result<OrderId, velox_core::CoreError> {
+        Ok(OrderId::new())
+    }
+
+    async fn cancel_order(
+        &self,
+        _order_id: OrderId,
+    ) -> Result<(), velox_core::CoreError> {
+        Ok(())
+    }
+
+    async fn get_positions(
+        &self,
+    ) -> Result<Vec<Position>, velox_core::CoreError> {
+        Ok(vec![])
+    }
+
+    async fn get_account_info(
+        &self,
+    ) -> Result<velox_core::AccountInfo, velox_core::CoreError> {
+        Ok(velox_core::AccountInfo {
+            cash: 100000.0,
+            buying_power: 200000.0,
+            equity: 100000.0,
+            margin_used: 0.0,
+            unrealized_pnl: 0.0,
+            realized_pnl: 0.0,
+            currency: "USD".to_string(),
+        })
     }
 }
 
@@ -458,16 +632,57 @@ mod tests {
     fn test_set_timeframe_switches_candles() {
         let mut state = AppState::empty(&[60, 300]);
 
-        // Manually insert candles into the 5m bucket
         state.candles_by_tf.insert(
             300,
             vec![make_candle(300, 50000.0), make_candle(300, 50100.0)],
         );
 
-        // Switch to 5m
         state.set_timeframe(300);
         assert_eq!(state.selected_timeframe, 300);
         assert_eq!(state.candles.len(), 2);
         assert_eq!(state.candles[0].timeframe_secs, 300);
+    }
+
+    #[test]
+    fn test_default_trading_mode_is_paper() {
+        let state = AppState::empty(&[60]);
+        assert_eq!(state.trading_mode, TradingMode::Paper);
+        assert!(state.broker.is_none());
+        assert!(!state.broker_connected);
+    }
+
+    #[test]
+    fn test_set_broker_switches_to_live() {
+        let mut state = AppState::empty(&[60]);
+        let (broker, config) = make_mock_broker();
+        state.set_broker(broker, config);
+
+        assert_eq!(state.trading_mode, TradingMode::Live);
+        assert!(state.broker.is_some());
+        assert!(state.broker_connected);
+    }
+
+    #[test]
+    fn test_clear_broker_reverts_to_paper() {
+        let mut state = AppState::empty(&[60]);
+        let (broker, config) = make_mock_broker();
+        state.set_broker(broker, config);
+        state.clear_broker();
+
+        assert_eq!(state.trading_mode, TradingMode::Paper);
+        assert!(state.broker.is_none());
+        assert!(!state.broker_connected);
+    }
+
+    /// Create a mock broker / config pair for testing.
+    fn make_mock_broker() -> (Arc<dyn BrokerClient>, BrokerConfig) {
+        let config = BrokerConfig {
+            api_key: "test_key".into(),
+            api_secret: "test_secret".into(),
+            base_url: "https://test.binance.com".into(),
+            paper_trading: false,
+        };
+        let broker = Arc::new(MockBroker);
+        (broker, config)
     }
 }

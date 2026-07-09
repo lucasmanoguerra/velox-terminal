@@ -18,4 +18,6 @@ wgpu.workspace = true
 crossbeam.workspace = true
 chrono.workspace = true
 tracing.workspace = true
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["sync", "rt"] }
+velox-broker = { path = "../velox-broker" }
+async-trait.workspace = true
