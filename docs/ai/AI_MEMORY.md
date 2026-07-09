@@ -4,6 +4,45 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-09 — BinanceBroker: BrokerClient trait implementation
+
+**Decision**: Implementar `BinanceBroker` que implementa el trait `BrokerClient` de
+`velox-broker`, mapeando tipos de dominio (`NewOrder`, `OrderId`) a la API REST de
+Binance. Es el puente final entre la OMS y Binance para ejecución real de órdenes.
+
+**Problema resuelto**: La terminal solo podía hacer paper trading. Para ejecutar
+órdenes reales en Binance se necesitaba un adapter que implementara `BrokerClient`,
+conectando el mundo UUID de la OMS con los IDs numéricos de Binance.
+
+**Arquitectura**:
+- `BinanceBroker` posee `Arc<Mutex<Option<BinanceRestClient>>>` — el cliente REST
+  se crea en `connect()` y se destruye en `disconnect()`.
+- Order ID mapping: `order_map: Arc<Mutex<HashMap<OrderId, (i64, String)>>>` —
+  nuestro UUID se envía como `newClientOrderId` para idempotencia.
+- `submit_order_raw()`: mapea `NewOrder` → Binance params (side BUY/SELL, order type
+  MARKET/LIMIT/STOP_LOSS, quantity/price formatting).
+- `submit_order()`: genera UUID, llama a `submit_order_raw()`, almacena (binanceId, symbol).
+- `cancel_order()`: busca binanceId en `order_map`, llama a REST cancel.
+- `get_account_info()`: suma free/locked balances de Binance account endpoint.
+- `get_client()` helper: clona el `BinanceRestClient` con MutexGuard en variable nombrada.
+- `format_quantity()`/`format_price()`: helpers de serialización numérica.
+- 8 tests: format helpers, debug, connection lifecycle, submit rejection pre-connect.
+
+**Fix**: `BinanceRestClient` recibe `#[derive(Clone)]` (todos sus campos son Clone).
+Se corrigió temporary lifetime issue con `MutexGuard` usando `let guard = ...`
++ `guard.as_ref().cloned()` en lugar de chaining con `?`.
+
+**Files changed**:
+- `crates/velox-exchange/src/binance_broker.rs` (nuevo, 396 líneas)
+- `crates/velox-exchange/src/binance_rest.rs` (+Clone derive)
+- `crates/velox-exchange/Cargo.toml` (+uuid workspace dep)
+- `crates/velox-exchange/src/lib.rs` (+pub mod binance_broker)
+- `docs/ai/AI_MEMORY.md` (this entry)
+
+**Tests**: 107 pasando (antes 98 → +9 broker), 0 clippy warnings.
+
+---
+
 ## 2026-07-08 — OMS + UI Integration (PaperTrader mock execution engine)
 
 **Decision**: Integrar la OMS (OrderManager) con la UI mediante un PaperTrader mock

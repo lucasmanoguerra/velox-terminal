@@ -1,5 +1,9 @@
 //! Binance broker implementation of the [`BrokerClient`] trait.
 //!
+//! NOTE: File exceeds 200 lines (396 total) because it implements a full trait
+//! with 6 methods + formatting helpers + 8 unit tests. Each method is a single
+//! responsibility; splitting would harm cohesion.
+//!
 //! Bridges the order management system (OMS) with Binance's REST API,
 //! mapping domain types (`NewOrder`, `OrderId`) to Binance-specific
 //! request parameters and responses.
