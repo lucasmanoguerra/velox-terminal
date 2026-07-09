@@ -25,10 +25,24 @@ Current state of the velox-terminal project.
 - **Licensing**: 3-tier model (Community/Pro/Enterprise) — design doc
 - **Community**: CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md, issue/PR templates
 
-## In Progress (Phase 2-3: Adapters)
+## Fase Actual
 
-- Conectores a más exchanges (BingX, Bybit, Kraken)
-- Backtesting con slippage
+| Fase | Estado |
+|------|--------|
+| Fase 0: Fundación | ✅ Completada |
+| Fase 1: Domain Core | ✅ Completada |
+| Fase 2: Conectividad & Market Data | 🔄 En progreso |
+| Fase 3: Charting Core | 🔄 En progreso |
+| Fase 4: Trading & Órdenes | 🔄 En progreso |
+| Fase 5: Análisis Técnico Avanzado | 📋 Planificado |
+| Fase 6: Order Flow & Volumen | 📋 Planificado |
+| Fase 7: Herramientas de Dibujo | 📋 Planificado |
+| Fase 8: UX Multi-ventana & Productividad | 📋 Planificado |
+| Fase 9: Automatización & Scripting | 📋 Planificado |
+| Fase 10: Backtesting & Optimización | 📋 Planificado |
+| Fase 11: Riesgo & Compliance | 📋 Planificado |
+| Fase 12: IA & Innovación | 📋 Planificado |
+| Fase 13: Producción & Distribución | 📋 Planificado |
 
 ## Completed Recently
 
@@ -50,7 +64,7 @@ Current state of the velox-terminal project.
 
 ## Next Up
 
-Ver `NEXT_ACTIONS.md` para la cola priorizada.
+Ver `NEXT_ACTIONS.md` para la cola priorizada (P1: Binance REST + ejecución real de órdenes).
 
 ## Known Blockers
 

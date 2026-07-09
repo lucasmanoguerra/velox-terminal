@@ -494,6 +494,26 @@ una sola vez.
 
 ---
 
+## 2026-07-09 — Comprehensive roadmap + inspiration docs
+
+**Decision**: Refactor completo del roadmap a 14 fases granulares basado en análisis
+de 7 proyectos open source (Fincept, Nautilus, Freqtrade, OpenTerminalUI, OpenAlgo,
+ProfitMaker, OS Engine) y 5 plataformas comerciales (NinjaTrader, MetaTrader,
+TradingView, ATAS, DeepChart). Crear `docs/reference/INSPIRATION.md` documentando
+cada proyecto con stack, features clave, y qué aprender.
+
+**Documentos creados**:
+- `docs/reference/INSPIRATION.md` — 7 proyectos OSS + 5 comerciales, extracción de
+  ~100 features por categoría, tabla comparativa de stacks
+- `docs/project/ROADMAP.md` — Rewrite completo: 14 fases con ~300 features organizados
+  por categoría (charting, trading, drawing, SMC/ICT, order flow, scripting,
+  backtesting, IA, etc.), todo priorizado y con estado ✅/🚧/📋
+- `docs/project/NEXT_ACTIONS.md` — Backlog priorizado P1-P4 con 46 items y tabla de
+  crates impactados
+- `docs/project/PROJECT_STATE.md` — Fases extendidas de 5 a 14
+
+---
+
 ## 2026-07-08 — Hexagonal architecture + community standards + CI fixes
 
 **Decision**: Adopt Hexagonal (Ports & Adapters) + UNIX philosophy as the architectural guide. Create community files (CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md). Fix CI pipeline failures (fmt, clippy, cargo-deny).

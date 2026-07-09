@@ -25,6 +25,7 @@ Start here, then open the section README for the area you need.
 | Operations | `docs/operations/README.md` | CI/CD, cross-compilation, licencias, releases |
 | ADRs | `docs/adrs/README.md` | Architecture Decision Records |
 | Timelines | `docs/timelines/README.md` | Registro cronológico de cambios significativos |
+| Reference | `docs/reference/INSPIRATION.md` | Proyectos open source y plataformas de inspiración |
 
 ## Core Entry Files
 
