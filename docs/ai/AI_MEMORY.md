@@ -494,6 +494,37 @@ una sola vez.
 
 ---
 
+## 2026-07-09 — Binance User Data Stream (account, order, balance real-time updates)
+
+**Decision**: Implementar `BinanceUserDataStream` en `velox-exchange` como
+conector WebSocket para el User Data Stream de Binance. Proporciona eventos
+en tiempo real de cuenta (balances), órdenes (fills/cancels/rejects) y cambios
+de balance individuales vía un canal `tokio::sync::mpsc::UnboundedReceiver`.
+
+**Problema resuelto**: La terminal no tenía forma de recibir actualizaciones
+de balance o estado de órdenes en tiempo real desde Binance. Solo existía el
+REST client (request/response) y el market data feed (trades/depth).
+
+**Key changes**:
+- `binance_user_data.rs` (nuevo, 610 líneas):
+  - Event types: `AccountUpdateEvent`, `OrderUpdateEvent`, `BalanceUpdateEvent`,
+    `ListStatusEvent`, `UserDataEvent` enum
+  - `BinanceUserDataStream`: create listen key via REST → connect WebSocket →
+    parse events → send to mpsc channel. Listen key keepalive cada 30 min.
+    Auto-reconnect con exponential backoff + full jitter.
+  - `BinanceRestClient`: +`create_listen_key()`, `keepalive_listen_key()`,
+    `close_listen_key()` endpoints
+  - 10 tests: account/order/balance/listStatus parsing, channel message delivery,
+    unknown event handling, backoff, debug format
+- 35 exchange tests total (was 25), 98 total workspace, 0 clippy warnings
+
+**Files changed**:
+- `crates/velox-exchange/src/binance_user_data.rs` (nuevo, 610 líneas)
+- `crates/velox-exchange/src/binance_rest.rs` (+3 listen key endpoints)
+- `crates/velox-exchange/src/lib.rs` (+pub mod binance_user_data)
+
+---
+
 ## 2026-07-09 — Binance REST Client (account, exchangeInfo, order placement)
 
 **Decision**: Implement `BinanceRestClient` en `velox-exchange` como cliente

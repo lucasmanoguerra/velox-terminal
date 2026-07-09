@@ -27,6 +27,7 @@
 
 pub mod binance;
 pub mod binance_rest;
+pub mod binance_user_data;
 pub mod error;
 pub mod r#trait;
 

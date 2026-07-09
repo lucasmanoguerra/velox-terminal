@@ -428,6 +428,75 @@ impl BinanceRestClient {
         self.parse_response::<Vec<BinanceOrderResponse>>(resp).await
     }
 
+    // ── User Data Stream (listen key) ─────────────────────────────
+
+    /// Create a listen key for the user data stream (`POST /api/v3/userDataStream`).
+    ///
+    /// Requires only the `X-MBX-APIKEY` header (no HMAC signing).
+    /// The listen key expires after 60 minutes if not kept alive.
+    pub async fn create_listen_key(&self) -> Result<String, ExchangeError> {
+        let url = format!("{}/api/v3/userDataStream", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .header("X-MBX-APIKEY", &self.api_key)
+            .send()
+            .await
+            .map_err(|e| ExchangeError::Http(e.to_string()))?;
+
+        #[derive(Deserialize)]
+        struct ListenKeyResponse {
+            listen_key: String,
+        }
+
+        let body: ListenKeyResponse = self.parse_response(resp).await?;
+        Ok(body.listen_key)
+    }
+
+    /// Keep a listen key alive (`PUT /api/v3/userDataStream`).
+    ///
+    /// Should be called every 30 minutes to prevent expiry (60 min TTL).
+    pub async fn keepalive_listen_key(&self, listen_key: &str) -> Result<(), ExchangeError> {
+        let url = format!(
+            "{}/api/v3/userDataStream?listenKey={}",
+            self.base_url, listen_key
+        );
+        let resp = self
+            .client
+            .put(&url)
+            .header("X-MBX-APIKEY", &self.api_key)
+            .send()
+            .await
+            .map_err(|e| ExchangeError::Http(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            return Err(self.parse_error(resp).await);
+        }
+        Ok(())
+    }
+
+    /// Close a listen key (`DELETE /api/v3/userDataStream`).
+    ///
+    /// Call when shutting down to prevent stale keys.
+    pub async fn close_listen_key(&self, listen_key: &str) -> Result<(), ExchangeError> {
+        let url = format!(
+            "{}/api/v3/userDataStream?listenKey={}",
+            self.base_url, listen_key
+        );
+        let resp = self
+            .client
+            .delete(&url)
+            .header("X-MBX-APIKEY", &self.api_key)
+            .send()
+            .await
+            .map_err(|e| ExchangeError::Http(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            return Err(self.parse_error(resp).await);
+        }
+        Ok(())
+    }
+
     /// Get all trades for a symbol (`GET /api/v3/myTrades`).
     pub async fn my_trades(
         &self,
