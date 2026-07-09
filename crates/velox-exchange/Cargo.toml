@@ -26,4 +26,15 @@ thiserror.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 
+# HTTP client
+reqwest.workspace = true
+
+# Crypto (HMAC-SHA256 for Binance API signing)
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+httpmock = "0.7"
+
 

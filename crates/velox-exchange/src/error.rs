@@ -23,6 +23,12 @@ pub enum ExchangeError {
     #[error("Exchange error: {0}")]
     Exchange(String),
 
+    #[error("HTTP request error: {0}")]
+    Http(String),
+
+    #[error("API key not configured")]
+    ApiKeyNotConfigured,
+
     #[error("Core error: {0}")]
     Core(#[from] velox_core::CoreError),
 

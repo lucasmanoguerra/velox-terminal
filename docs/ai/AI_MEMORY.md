@@ -494,6 +494,41 @@ una sola vez.
 
 ---
 
+## 2026-07-09 — Binance REST Client (account, exchangeInfo, order placement)
+
+**Decision**: Implement `BinanceRestClient` en `velox-exchange` como cliente
+HTTP REST para la API de Binance con autenticación HMAC-SHA256. Soporta
+endpoints públicos (ping, exchangeInfo) y firmados (account, newOrder,
+cancelOrder, getOrder, openOrders, myTrades). Incluye mocks via `httpmock`.
+
+**Problema resuelto**: No existía forma de comunicarse con la API REST de
+Binance para operar con dinero real. Toda la ejecución era paper trading.
+
+**Key changes**:
+- `Cargo.toml` workspace: +`reqwest 0.12` (rustls-tls), +`hmac 0.12`
+- `crates/velox-exchange/Cargo.toml`: +reqwest, hmac, sha2, hex deps;
+  dev-dependency `httpmock 0.7`
+- `crates/velox-exchange/src/error.rs`: +`Http(String)`, `ApiKeyNotConfigured`
+  variants
+- `crates/velox-exchange/src/binance_rest.rs` **(nuevo, 1074 líneas)**:
+  - Tipos de respuesta: `BinanceAccountInfo`, `BinanceBalance`,
+    `BinanceExchangeInfo`, `BinanceSymbolInfo`, `BinanceOrderResponse`,
+    `BinanceOrderFill`, `BinanceCancelledOrder`, `BinanceTrade`
+  - `BinanceRestClient`: constructor `new(api_key, secret, testnet)`,
+    métodos `ping()`, `exchange_info()`, `account()`, `new_order()`,
+    `cancel_order()`, `get_order()`, `open_orders()`, `my_trades()`
+  - HMAC-SHA256 signing: `build_query()` con sorted params + timestamp +
+    recvWindow; `sign()` con hex encoding
+  - `parse_response()` y `parse_error()` para errores Binance estructurados
+  - `Debug` implementado con API key masked
+  - 17 tests (25 exchange total): query building, HMAC vectors, signed URL
+    format, HTTP mocking para cada endpoint, error parsing, open orders,
+    my trades
+
+**Files changed**: 4 files, +1085−1 líneas. 88 tests pasando, 0 clippy warnings.
+
+---
+
 ## 2026-07-09 — Comprehensive roadmap + inspiration docs
 
 **Decision**: Refactor completo del roadmap a 14 fases granulares basado en análisis
