@@ -72,25 +72,33 @@ impl MarketDataPipeline {
     /// Returns the number of new candles produced (0 if no new data).
     pub fn poll(&mut self) -> usize {
         let mut new_candles = 0;
+        // Reusable batch buffer to avoid per-frame allocations
+        let mut batch = Vec::with_capacity(128);
 
         loop {
-            match self.ring.pop() {
-                Some(MarketEvent::Tick(tick)) => {
-                    self.ticks_processed += 1;
-                    let completed = self.aggregator.process_tick(&tick);
-                    for candle in completed {
-                        self.candles_produced += 1;
-                        new_candles += 1;
-                        // Best-effort send (returns error if receiver dropped)
-                        let _ = self.candle_tx.send(candle);
+            let count = self.ring.pop_n(&mut batch, 128);
+            if count == 0 {
+                break; // buffer empty
+            }
+
+            for event in batch.drain(..) {
+                self.ticks_processed += 1;
+                match event {
+                    MarketEvent::Tick(tick) => {
+                        let completed = self.aggregator.process_tick(&tick);
+                        for candle in completed {
+                            self.candles_produced += 1;
+                            new_candles += 1;
+                            // Best-effort send (returns error if receiver dropped)
+                            let _ = self.candle_tx.send(candle);
+                        }
+                    }
+                    MarketEvent::Quote(quote) => {
+                        // Quotes are not aggregated into candles yet.
+                        // Future: use bid/ask for spread analysis.
+                        tracing::trace!("Quote ignored in pipeline: {:?}", quote.symbol);
                     }
                 }
-                Some(MarketEvent::Quote(quote)) => {
-                    // Quotes are not aggregated into candles yet.
-                    // Future: use bid/ask for spread analysis.
-                    tracing::trace!("Quote ignored in pipeline: {:?}", quote.symbol);
-                }
-                None => break, // buffer empty
             }
         }
 
