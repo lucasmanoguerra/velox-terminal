@@ -28,6 +28,23 @@ impl OrderManager {
 
     /// Submit a new order. Returns the assigned OrderId.
     pub fn submit_order(&mut self, new_order: NewOrder) -> Result<OrderId, OmsError> {
+        self.submit_order_inner(new_order, None)
+    }
+
+    /// Submit a new order with a parent order link (for bracket/oco children).
+    pub fn submit_order_with_parent(
+        &mut self,
+        new_order: NewOrder,
+        parent_id: OrderId,
+    ) -> Result<OrderId, OmsError> {
+        self.submit_order_inner(new_order, Some(parent_id))
+    }
+
+    fn submit_order_inner(
+        &mut self,
+        new_order: NewOrder,
+        parent_order_id: Option<OrderId>,
+    ) -> Result<OrderId, OmsError> {
         // Validate quantity
         if new_order.quantity <= 0.0 {
             return Err(OmsError::Rejected("Order quantity must be positive".into()));
@@ -57,7 +74,7 @@ impl OrderManager {
             created_at: now,
             updated_at: now,
             client_order_id: new_order.client_order_id,
-            parent_order_id: None,
+            parent_order_id,
         };
 
         self.orders.insert(order_id, order);
@@ -243,6 +260,15 @@ impl OrderManager {
         self.orders.values().collect()
     }
 
+    /// Get the order IDs of all orders with the given parent.
+    pub fn child_order_ids(&self, parent_id: OrderId) -> Vec<OrderId> {
+        self.orders
+            .values()
+            .filter(|o| o.parent_order_id == Some(parent_id))
+            .map(|o| o.order_id)
+            .collect()
+    }
+
     /// Get all fills.
     pub fn all_fills(&self) -> &[Fill] {
         &self.fills
@@ -286,6 +312,8 @@ mod tests {
             stop_price: None,
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         }
     }
 
@@ -529,6 +557,8 @@ mod tests {
                 stop_price: None,
                 time_in_force: TimeInForce::Day,
                 client_order_id: None,
+                take_profit_price: None,
+                stop_loss_price: None,
             }
         }
     }

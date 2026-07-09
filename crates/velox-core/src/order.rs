@@ -71,6 +71,14 @@ pub struct NewOrder {
     pub stop_price: Option<f64>,
     pub time_in_force: TimeInForce,
     pub client_order_id: Option<String>,
+
+    /// Bracket order: take-profit limit price.
+    /// When set, a take-profit limit order is auto-submitted when entry fills.
+    pub take_profit_price: Option<f64>,
+
+    /// Bracket order: stop-loss stop-market price.
+    /// When set, a stop-loss stop-market order is auto-submitted when entry fills.
+    pub stop_loss_price: Option<f64>,
 }
 
 /// An active order in the system.

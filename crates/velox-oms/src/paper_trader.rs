@@ -17,11 +17,25 @@ use velox_core::{
 
 use crate::OrderManager;
 
+/// Bracket configuration stored for an entry order.
+#[derive(Debug, Clone)]
+struct BracketConfig {
+    take_profit_price: f64,
+    stop_loss_price: f64,
+}
+
 /// A paper trading engine that wraps [`OrderManager`] with auto-fill for all order types.
+///
+/// Supports bracket orders: when an entry order with `take_profit_price` and
+/// `stop_loss_price` is filled, TP (Limit) and SL (StopMarket) child orders
+/// are automatically created. When either child fills, the sibling is canceled.
 pub struct PaperTrader {
     order_manager: OrderManager,
     account: AccountInfo,
     last_prices: HashMap<String, f64>,
+    /// Stores bracket configs keyed by entry order ID.
+    /// Removed when children are created.
+    bracket_configs: HashMap<OrderId, BracketConfig>,
 }
 
 impl PaperTrader {
@@ -39,6 +53,7 @@ impl PaperTrader {
                 currency: "USD".to_string(),
             },
             last_prices: HashMap::new(),
+            bracket_configs: HashMap::new(),
         }
     }
 
@@ -48,13 +63,36 @@ impl PaperTrader {
     }
 
     /// Submit an order of any type. Returns `Ok(OrderId)` on success.
+    ///
+    /// If the order has bracket parameters (`take_profit_price` and `stop_loss_price`),
+    /// they are stored and TP/SL children are auto-created when the entry fills.
     pub fn submit_order(&mut self, order: NewOrder) -> Result<OrderId, String> {
         if order.quantity <= 0.0 {
             return Err("Quantity must be positive".to_string());
         }
-        self.order_manager
+
+        // Extract bracket prices before consuming `order`
+        let bracket = match (order.take_profit_price, order.stop_loss_price) {
+            (Some(tp), Some(sl)) if tp > 0.0 && sl > 0.0 => {
+                Some(BracketConfig {
+                    take_profit_price: tp,
+                    stop_loss_price: sl,
+                })
+            }
+            _ => None,
+        };
+
+        let entry_id = self
+            .order_manager
             .submit_order(order)
-            .map_err(|e| format!("{e}"))
+            .map_err(|e| format!("{e}"))?;
+
+        // Store bracket config to auto-create children on fill
+        if let Some(config) = bracket {
+            self.bracket_configs.insert(entry_id, config);
+        }
+
+        Ok(entry_id)
     }
 
     /// Submit a market order (convenience). Returns `Ok(OrderId)` on success.
@@ -73,6 +111,8 @@ impl PaperTrader {
             stop_price: None,
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         };
         self.submit_order(new_order)
     }
@@ -90,6 +130,10 @@ impl PaperTrader {
     /// - **Limit**: fills at `order.price` when price trades through the limit level.
     /// - **StopMarket**: fills at `close` when price trades through the stop level.
     /// - **StopLimit**: fills at `order.price` when price trades through the stop level.
+    ///
+    /// Also handles bracket lifecycle:
+    /// - When an entry order with bracket config fills, TP and SL children are created.
+    /// - When a TP or SL child fills, its sibling is canceled.
     ///
     /// Should be called after new candle data arrives.
     /// Returns the number of orders filled.
@@ -111,6 +155,7 @@ impl PaperTrader {
             .collect();
 
         let mut filled_count = 0;
+        let mut filled_ids: Vec<OrderId> = Vec::new();
         for order in &orders {
             let should_fill = Self::should_fill_order(order, high, low);
             if !should_fill {
@@ -140,7 +185,10 @@ impl PaperTrader {
             };
 
             match self.order_manager.apply_fill(fill) {
-                Ok(()) => filled_count += 1,
+                Ok(()) => {
+                    filled_count += 1;
+                    filled_ids.push(order.order_id);
+                }
                 Err(e) => {
                     tracing::warn!("Failed to fill order {}: {e}", order.order_id.0);
                 }
@@ -151,7 +199,111 @@ impl PaperTrader {
             self.update_account();
         }
 
+        // ── Bracket lifecycle ────────────────────────────────────────
+        for &filled_id in &filled_ids {
+            // 1. If this is a bracket entry, create TP and SL children
+            if let Some(config) = self.bracket_configs.remove(&filled_id) {
+                self.create_bracket_children(filled_id, &config);
+            }
+
+            // 2. If this is a child order (TP/SL), cancel its sibling
+            let filled_order = self.order_manager.get_order(&filled_id);
+            if let Some(parent_id) = filled_order.and_then(|o| o.parent_order_id) {
+                self.cancel_sibling_orders(filled_id, parent_id);
+            }
+        }
+
         filled_count
+    }
+
+    /// Create TP (Limit) and SL (StopMarket) child orders for a filled entry.
+    fn create_bracket_children(&mut self, entry_id: OrderId, config: &BracketConfig) {
+        let entry = match self.order_manager.get_order(&entry_id) {
+            Some(o) => o.clone(),
+            None => {
+                tracing::warn!("Bracket entry {:.8} not found", entry_id.0);
+                return;
+            }
+        };
+
+        // Determine opposite side for TP and SL
+        let opposite_side = match entry.side {
+            Side::Buy => Side::Sell,
+            Side::Sell => Side::Buy,
+        };
+
+        let filled_qty = entry.filled_quantity;
+
+        if filled_qty <= 0.0 {
+            return;
+        }
+
+        // TP: Limit order at take_profit_price (opposite side)
+        let tp_order = NewOrder {
+            symbol: entry.symbol.clone(),
+            side: opposite_side,
+            order_type: OrderType::Limit,
+            quantity: filled_qty,
+            price: Some(config.take_profit_price),
+            stop_price: None,
+            time_in_force: TimeInForce::Day,
+            client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
+        };
+        if let Ok(tp_id) = self.order_manager.submit_order_with_parent(tp_order, entry_id) {
+            tracing::debug!(
+                "Created TP child {:.8} for entry {:.8} at {}",
+                tp_id.0,
+                entry_id.0,
+                config.take_profit_price
+            );
+        }
+
+        // SL: StopMarket order at stop_loss_price (opposite side)
+        let sl_order = NewOrder {
+            symbol: entry.symbol.clone(),
+            side: opposite_side,
+            order_type: OrderType::StopMarket,
+            quantity: filled_qty,
+            price: None,
+            stop_price: Some(config.stop_loss_price),
+            time_in_force: TimeInForce::Day,
+            client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
+        };
+        if let Ok(sl_id) = self.order_manager.submit_order_with_parent(sl_order, entry_id) {
+            tracing::debug!(
+                "Created SL child {:.8} for entry {:.8} at {}",
+                sl_id.0,
+                entry_id.0,
+                config.stop_loss_price
+            );
+        }
+    }
+
+    /// Cancel all sibling orders of `filled_child_id` that share `parent_id`.
+    fn cancel_sibling_orders(&mut self, filled_child_id: OrderId, parent_id: OrderId) {
+        let siblings = self.order_manager.child_order_ids(parent_id);
+        for sibling_id in siblings {
+            if sibling_id == filled_child_id {
+                continue;
+            }
+            if let Err(e) = self.order_manager.cancel_order(sibling_id) {
+                tracing::warn!(
+                    "Failed to cancel sibling {:.8} of {:.8}: {e}",
+                    sibling_id.0,
+                    filled_child_id.0
+                );
+            } else {
+                tracing::debug!(
+                    "Canceled sibling {:.8} (filled child {:.8})",
+                    sibling_id.0,
+                    filled_child_id.0
+                );
+            }
+        }
     }
 
     /// Determine whether an order should be filled given the current OHLC bar.
@@ -482,6 +634,8 @@ mod tests {
             stop_price: None,
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         };
         pt.submit_order(order).unwrap();
         assert_eq!(pt.open_orders().len(), 1);
@@ -506,6 +660,8 @@ mod tests {
             stop_price: None,
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         };
         pt.submit_order(order).unwrap();
 
@@ -528,6 +684,8 @@ mod tests {
             stop_price: None,
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         };
         pt.submit_order(order).unwrap();
 
@@ -552,6 +710,8 @@ mod tests {
             stop_price: Some(51000.0),
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         };
         pt.submit_order(order).unwrap();
 
@@ -576,6 +736,8 @@ mod tests {
             stop_price: Some(18.0),
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         };
         pt.submit_order(order).unwrap();
 
@@ -583,6 +745,173 @@ mod tests {
         let filled = pt.execute_open_orders(sym, 18.5, 19.0, 17.5);
         assert_eq!(filled, 1);
         assert_eq!(pt.net_position(sym), -2.0);
+    }
+
+    // ── Bracket order tests ──────────────────────────────────────
+
+    #[test]
+    fn test_bracket_market_buy_creates_tp_sl() {
+        let mut pt = PaperTrader::new(100_000.0);
+        let sym = "BTC/USDT";
+
+        // Entry with bracket at 50000
+        let order = NewOrder {
+            symbol: sym.to_string(),
+            side: Side::Buy,
+            order_type: OrderType::Market,
+            quantity: 1.0,
+            price: None,
+            stop_price: None,
+            time_in_force: TimeInForce::Day,
+            client_order_id: None,
+            take_profit_price: Some(51000.0),
+            stop_loss_price: Some(49000.0),
+        };
+        let entry_id = pt.submit_order(order).unwrap();
+
+        // Fill entry at 50000
+        let filled = exec(&mut pt, sym, 50000.0);
+        assert_eq!(filled, 1, "Entry should fill");
+        assert_eq!(pt.net_position(sym), 1.0);
+
+        // TP and SL children should have been created
+        let orders = pt.closed_orders();
+        assert_eq!(orders.len(), 1, "One filled entry");
+
+        // The entry's fill should auto-create TP and SL as child orders
+        let tp_sl_orders: Vec<&Order> = pt
+            .orders()
+            .into_iter()
+            .filter(|o| o.parent_order_id == Some(entry_id))
+            .collect();
+        assert_eq!(tp_sl_orders.len(), 2, "Entry should have 2 bracket children");
+
+        // One should be Limit (TP), one StopMarket (SL)
+        let tp = tp_sl_orders.iter().find(|o| o.order_type == OrderType::Limit).unwrap();
+        let sl = tp_sl_orders.iter().find(|o| o.order_type == OrderType::StopMarket).unwrap();
+        assert_eq!(tp.price, Some(51000.0));
+        assert_eq!(sl.stop_price, Some(49000.0));
+        assert_eq!(tp.quantity, 1.0);
+        assert_eq!(sl.quantity, 1.0);
+    }
+
+    #[test]
+    fn test_bracket_tp_fill_cancels_sl() {
+        let mut pt = PaperTrader::new(100_000.0);
+        let sym = "BTC/USDT";
+
+        // Entry with bracket, fill at 50000
+        let order = NewOrder {
+            symbol: sym.to_string(),
+            side: Side::Buy,
+            order_type: OrderType::Market,
+            quantity: 1.0,
+            price: None,
+            stop_price: None,
+            time_in_force: TimeInForce::Day,
+            client_order_id: None,
+            take_profit_price: Some(51000.0),
+            stop_loss_price: Some(49000.0),
+        };
+        let entry_id = pt.submit_order(order).unwrap();
+        exec(&mut pt, sym, 50000.0);
+
+        // Price rises to 51500 — TP (Limit Sell at 51000) should fill
+        let filled = pt.execute_open_orders(sym, 51500.0, 52000.0, 51000.0);
+        assert_eq!(filled, 1, "TP should fill");
+        assert_eq!(pt.net_position(sym), 0.0, "Position should be flat");
+
+        // SL should be canceled
+        let sl = pt
+            .orders()
+            .into_iter()
+            .find(|o| o.order_type == OrderType::StopMarket && o.parent_order_id == Some(entry_id))
+            .unwrap();
+        assert_eq!(sl.state, OrderState::Canceled, "SL should be canceled after TP fills");
+    }
+
+    #[test]
+    fn test_bracket_sl_fill_cancels_tp() {
+        let mut pt = PaperTrader::new(100_000.0);
+        let sym = "SOL/USDT";
+
+        // Short entry with bracket
+        let order = NewOrder {
+            symbol: sym.to_string(),
+            side: Side::Sell,
+            order_type: OrderType::Market,
+            quantity: 5.0,
+            price: None,
+            stop_price: None,
+            time_in_force: TimeInForce::Day,
+            client_order_id: None,
+            take_profit_price: Some(15.0),
+            stop_loss_price: Some(25.0),
+        };
+        let entry_id = pt.submit_order(order).unwrap();
+        exec(&mut pt, sym, 20.0);
+
+        // Price drops to 14 — TP (Limit Buy at 15) should fill
+        let filled = pt.execute_open_orders(sym, 14.0, 16.0, 13.0);
+        assert_eq!(filled, 1, "TP should fill");
+        assert_eq!(pt.net_position(sym), 0.0, "Position should be flat");
+
+        // SL should be canceled
+        let sl = pt
+            .orders()
+            .into_iter()
+            .find(|o| o.order_type == OrderType::StopMarket && o.parent_order_id == Some(entry_id))
+            .unwrap();
+        assert_eq!(sl.state, OrderState::Canceled, "SL should be canceled after TP fills");
+    }
+
+    #[test]
+    fn test_bracket_market_buy_no_tp_sl_if_not_set() {
+        let mut pt = PaperTrader::new(100_000.0);
+        let sym = "BTC/USDT";
+
+        // Regular market order (no bracket) — should NOT create children
+        let entry_id = pt.submit_market_order(sym, Side::Buy, 1.0).unwrap();
+        exec(&mut pt, sym, 50000.0);
+
+        let children: Vec<&Order> = pt
+            .orders()
+            .into_iter()
+            .filter(|o| o.parent_order_id == Some(entry_id))
+            .collect();
+        assert_eq!(children.len(), 0, "No bracket children expected");
+    }
+
+    #[test]
+    fn test_bracket_creates_children_with_parent_id() {
+        let mut pt = PaperTrader::new(100_000.0);
+        let sym = "ETH/USDT";
+
+        let order = NewOrder {
+            symbol: sym.to_string(),
+            side: Side::Buy,
+            order_type: OrderType::Market,
+            quantity: 2.0,
+            price: None,
+            stop_price: None,
+            time_in_force: TimeInForce::Day,
+            client_order_id: None,
+            take_profit_price: Some(2500.0),
+            stop_loss_price: Some(2300.0),
+        };
+        let entry_id = pt.submit_order(order).unwrap();
+        exec(&mut pt, sym, 2400.0);
+
+        let children: Vec<&Order> = pt
+            .orders()
+            .into_iter()
+            .filter(|o| o.parent_order_id == Some(entry_id))
+            .collect();
+        assert_eq!(children.len(), 2);
+        for child in &children {
+            assert_eq!(child.quantity, 2.0, "Child should have same qty as entry");
+            assert_eq!(child.side, Side::Sell, "Children should be opposite side");
+        }
     }
 
     #[test]
@@ -599,6 +928,8 @@ mod tests {
             stop_price: Some(51000.0),
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         };
         pt.submit_order(order).unwrap();
 

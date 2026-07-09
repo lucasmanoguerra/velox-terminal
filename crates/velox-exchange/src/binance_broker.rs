@@ -373,6 +373,8 @@ mod tests {
             stop_price: None,
             time_in_force: TimeInForce::Ioc,
             client_order_id: None,
+            take_profit_price: None,
+            stop_loss_price: None,
         };
 
         let result = broker.submit_order(order).await;

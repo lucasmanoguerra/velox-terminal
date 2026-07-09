@@ -99,6 +99,12 @@ pub struct AppState {
     /// Stop price (used for StopMarket and StopLimit orders).
     pub order_stop_price: f64,
 
+    /// Bracket order: take-profit limit price.
+    pub order_tp: f64,
+
+    /// Bracket order: stop-loss stop-market price.
+    pub order_sl: f64,
+
     /// Last order submission error (displayed briefly in UI).
     pub order_error: Option<String>,
 
@@ -175,6 +181,8 @@ impl AppState {
             order_type: OrderType::Market,
             order_price: 0.0,
             order_stop_price: 0.0,
+            order_tp: 0.0,
+            order_sl: 0.0,
             order_error: None,
             order_success: None,
             depth: None,
@@ -217,6 +225,8 @@ impl AppState {
             order_type: OrderType::Market,
             order_price: 0.0,
             order_stop_price: 0.0,
+            order_tp: 0.0,
+            order_sl: 0.0,
             order_error: None,
             order_success: None,
             depth: None,
@@ -478,6 +488,7 @@ impl AppState {
             OrderType::StopMarket | OrderType::StopLimit => Some(self.order_stop_price),
             _ => None,
         };
+        let (take_profit_price, stop_loss_price) = self.bracket_prices();
         NewOrder {
             symbol: self.symbol.clone(),
             side,
@@ -487,6 +498,19 @@ impl AppState {
             stop_price,
             time_in_force: TimeInForce::Day,
             client_order_id: None,
+            take_profit_price,
+            stop_loss_price,
+        }
+    }
+
+    /// Get bracket TP/SL prices if both are set and non-zero.
+    fn bracket_prices(&self) -> (Option<f64>, Option<f64>) {
+        let tp = self.order_tp;
+        let sl = self.order_sl;
+        if tp > 0.0 && sl > 0.0 {
+            (Some(tp), Some(sl))
+        } else {
+            (None, None)
         }
     }
 

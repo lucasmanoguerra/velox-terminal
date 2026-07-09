@@ -240,6 +240,28 @@ impl PanelManager {
 
                 ui.separator();
 
+                // Bracket TP/SL inputs
+                ui.separator();
+                ui.label("Bracket (TP/SL):");
+                ui.horizontal(|ui| {
+                    ui.label("TP:");
+                    ui.add(
+                        egui::DragValue::new(&mut state.order_tp)
+                            .speed(1.0)
+                            .prefix("$"),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("SL:");
+                    ui.add(
+                        egui::DragValue::new(&mut state.order_sl)
+                            .speed(1.0)
+                            .prefix("$"),
+                    );
+                });
+
+                ui.separator();
+
                 // Feedback messages
                 if let Some(ref err) = state.order_error {
                     ui.colored_label(egui::Color32::RED, err);
