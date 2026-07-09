@@ -65,3 +65,22 @@ pub enum TradingStatus {
     Paused,
     Closed,
 }
+
+/// A single level in the order book (price + quantity).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct OrderBookLevel {
+    pub price: f64,
+    pub size: f64,
+}
+
+/// An order book snapshot (bids and asks).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderBook {
+    pub symbol: String,
+    /// Bids sorted descending by price (best bid first).
+    pub bids: Vec<OrderBookLevel>,
+    /// Asks sorted ascending by price (best ask first).
+    pub asks: Vec<OrderBookLevel>,
+    /// Exchange-provided update ID.
+    pub last_update_id: u64,
+}

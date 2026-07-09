@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use velox_chart::interaction::{ChartInteraction, ChartView};
 use velox_chart::overlay::OverlayManager;
-use velox_core::{Candle, Order, OrderId, Position, Side};
+use velox_core::{Candle, Order, OrderBook, OrderId, Position, Side};
 use velox_oms::PaperTrader;
 
 /// Shared application state, mutated sequentially on the main thread.
@@ -77,6 +77,10 @@ pub struct AppState {
 
     /// Last order success message (displayed briefly in UI).
     pub order_success: Option<String>,
+
+    // ── Order book depth ───────────────────────────────────────────────
+    /// Latest order book snapshot (bids/asks) for the current symbol.
+    pub depth: Option<OrderBook>,
 }
 
 impl AppState {
@@ -107,6 +111,7 @@ impl AppState {
             order_entry_qty: 0.01,
             order_error: None,
             order_success: None,
+            depth: None,
         }
     }
 
@@ -134,6 +139,7 @@ impl AppState {
             order_entry_qty: 0.01,
             order_error: None,
             order_success: None,
+            depth: None,
         }
     }
 

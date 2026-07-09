@@ -240,7 +240,13 @@ impl App {
         // 3. Drain the mpsc channel into AppState
         let received = self.state.poll_candles();
 
-        // 4. Mock execution: if we have new candles, fill open market orders at the last price
+        // 4. Poll depth (order book) from the exchange feed
+        let sym_depth = self.state.symbol.clone();
+        if let Some(book) = self.feed.order_book(&sym_depth) {
+            self.state.depth = Some(book);
+        }
+
+        // 5. Mock execution: if we have new candles, fill open market orders at the last price
         // Extract values first to avoid borrow conflicts.
         let last_close = self.state.candles.last().map(|c| c.close);
         if let Some(close) = last_close {

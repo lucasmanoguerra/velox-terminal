@@ -28,22 +28,27 @@
 //! This implementation stays well within that limit with a single combined stream.
 
 use futures_util::StreamExt;
+use std::collections::HashMap;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
+use tokio::sync::{
+    Mutex,
+    RwLock,
+};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
-use velox_core::{CoreError, Tick};
+use velox_core::{CoreError, OrderBook, OrderBookLevel, Tick};
 use velox_md::ring_buffer::{MarketEvent, RingBuffer};
 
 use crate::ExchangeFeed;
 use crate::error::ExchangeError;
 
-/// Binance WebSocket base URL for combined streams.
-const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/ws";
+/// Binance WebSocket base URL for **combined** streams.
+/// Combined streams wrap each message in `{"stream": "...", "data": {...}}`.
+const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/stream";
 
 /// Default maximum reconnect delay in seconds.
 const DEFAULT_MAX_RECONNECT_SECS: u64 = 60;
@@ -61,6 +66,8 @@ struct BinanceFeedInner {
     symbols: Mutex<Vec<String>>,
     /// Ring buffer shared with consumer.
     ring: Mutex<Option<Arc<RingBuffer>>>,
+    /// Latest order book snapshot per symbol (key = lowercase, e.g. "btcusdt").
+    order_book: RwLock<HashMap<String, OrderBook>>,
     /// Tokio task handle for graceful shutdown.
     task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Maximum reconnect backoff in seconds.
@@ -98,11 +105,23 @@ impl BinanceFeed {
                 feed_connected: AtomicBool::new(false),
                 symbols: Mutex::new(Vec::new()),
                 ring: Mutex::new(None),
+                order_book: RwLock::new(HashMap::new()),
                 task_handle: Mutex::new(None),
                 max_reconnect_secs: DEFAULT_MAX_RECONNECT_SECS,
                 base_delay_ms: DEFAULT_BASE_DELAY_MS,
             }),
         }
+    }
+
+    /// Return the latest order book snapshot for a symbol (if available).
+    pub fn order_book(&self, symbol: &str) -> Option<OrderBook> {
+        let normalized = symbol.to_lowercase().replace(['-', '/'], "");
+        // Try read lock; return None on contention
+        self.inner
+            .order_book
+            .try_read()
+            .ok()
+            .and_then(|guard| guard.get(&normalized).cloned())
     }
 
     /// Return whether the WebSocket is currently connected.
@@ -111,10 +130,16 @@ impl BinanceFeed {
     }
 
     /// Build the combined stream path for subscribed symbols.
+    ///
+    /// Subscribes to `@trade` (tick stream) and `@depth20@100ms` (top-20 order book
+    /// snapshot every 100ms) for each symbol.
     fn build_stream_path(symbols: &[String]) -> String {
-        // Binance combined stream: /stream?streams=btcusdt@trade/ethusdt@trade
-        let streams: Vec<String> = symbols.iter().map(|s| format!("{}@trade", s)).collect();
-        format!("/stream?streams={}", streams.join("/"))
+        let mut streams: Vec<String> = Vec::with_capacity(symbols.len() * 2);
+        for sym in symbols {
+            streams.push(format!("{}@trade", sym));
+            streams.push(format!("{}@depth20@100ms", sym));
+        }
+        format!("?streams={}", streams.join("/"))
     }
 
     /// Exponential backoff with full jitter: sleep between 0 and `base * 2^attempt`,
@@ -384,9 +409,11 @@ impl BinanceFeed {
         Ok(())
     }
 
-    /// Parse a JSON trade message and push to the ring buffer.
+    /// Parse a JSON message from a combined Binance WebSocket stream.
+    ///
+    /// Combined streams wrap each message in `{"stream": "btcusdt@trade", "data": {...}}`.
+    /// This function unwraps the envelope and routes to the appropriate handler.
     fn handle_message(inner: &Arc<BinanceFeedInner>, text: &str) -> Result<(), ExchangeError> {
-        // Parse the common envelope first
         let raw: serde_json::Value =
             serde_json::from_str(text).map_err(|e| ExchangeError::JsonParse(e.to_string()))?;
 
@@ -397,16 +424,36 @@ impl BinanceFeed {
             return Err(ExchangeError::Exchange(format!("code {code}: {msg}")));
         }
 
-        // Determine event type
-        let event_type = raw.get("e").and_then(|e| e.as_str()).unwrap_or("unknown");
+        // Unwrap combined stream envelope: { "stream": "...", "data": {...} }
+        let (stream_name, data) = if let Some(sname) = raw.get("stream").and_then(|s| s.as_str())
+        {
+            let data = raw
+                .get("data")
+                .ok_or_else(|| ExchangeError::JsonParse("combined stream missing 'data' field".into()))?;
+            (sname, data)
+        } else {
+            // Raw stream format (no wrapper) — use the message as-is.
+            // Try to determine event type from the "e" field.
+            let event_type = raw.get("e").and_then(|e| e.as_str()).unwrap_or("unknown");
+            // For raw streams, we approximate routing by event type
+            return match event_type {
+                "trade" => Self::handle_trade(inner, &raw),
+                "depthUpdate" => Self::handle_depth(inner, &raw),
+                _ => {
+                    tracing::trace!("Ignored Binance event type: {event_type}");
+                    Ok(())
+                }
+            };
+        };
 
-        match event_type {
-            "trade" => Self::handle_trade(inner, &raw),
-            _ => {
-                // Ignore other event types (kline, depth, etc.)
-                tracing::trace!("Ignored Binance event type: {event_type}");
-                Ok(())
-            }
+        // Route based on the stream name suffix
+        if stream_name.ends_with("@trade") {
+            Self::handle_trade(inner, data)
+        } else if stream_name.ends_with("@depth20@100ms") {
+            Self::handle_depth(inner, data)
+        } else {
+            tracing::trace!("Ignored unknown stream: {stream_name}");
+            Ok(())
         }
     }
 
@@ -465,6 +512,69 @@ impl BinanceFeed {
 
         Ok(())
     }
+
+    /// Handle a `@depth20@100ms` snapshot: top 20 bids + asks.
+    fn handle_depth(
+        inner: &Arc<BinanceFeedInner>,
+        raw: &serde_json::Value,
+    ) -> Result<(), ExchangeError> {
+        let symbol_raw = raw
+            .get("s")
+            .and_then(|s| s.as_str())
+            .ok_or_else(|| ExchangeError::JsonParse("depth missing symbol".into()))?;
+
+        let last_update_id: u64 = raw
+            .get("lastUpdateId")
+            .and_then(|u| u.as_u64())
+            .ok_or_else(|| ExchangeError::JsonParse("depth missing lastUpdateId".into()))?;
+
+        let parse_levels = |arr: &serde_json::Value| -> Result<Vec<OrderBookLevel>, ExchangeError> {
+            let levels = arr
+                .as_array()
+                .ok_or_else(|| ExchangeError::JsonParse("depth levels not an array".into()))?;
+            let mut result = Vec::with_capacity(levels.len());
+            for level in levels {
+                if let Some(pair) = level.as_array() && pair.len() >= 2 {
+                    let price: f64 = pair[0]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .ok_or_else(|| ExchangeError::JsonParse("depth invalid price".into()))?;
+                    let size: f64 = pair[1]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .ok_or_else(|| ExchangeError::JsonParse("depth invalid size".into()))?;
+                    result.push(OrderBookLevel { price, size });
+                }
+            }
+            Ok(result)
+        };
+
+        let bids = raw
+            .get("bids")
+            .ok_or_else(|| ExchangeError::JsonParse("depth missing bids".into()))
+            .and_then(parse_levels)?;
+
+        let asks = raw
+            .get("asks")
+            .ok_or_else(|| ExchangeError::JsonParse("depth missing asks".into()))
+            .and_then(parse_levels)?;
+
+        let normalized = symbol_raw.to_lowercase();
+
+        let book = OrderBook {
+            symbol: normalized.clone(),
+            bids,
+            asks,
+            last_update_id,
+        };
+
+        // Store in shared state
+        if let Ok(mut guard) = inner.order_book.try_write() {
+            guard.insert(normalized, book);
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -476,9 +586,13 @@ mod tests {
     fn test_build_stream_path() {
         let symbols = vec!["btcusdt".into(), "ethusdt".into()];
         let path = BinanceFeed::build_stream_path(&symbols);
-        assert!(path.contains("btcusdt@trade"));
-        assert!(path.contains("ethusdt@trade"));
-        assert!(path.starts_with("/stream?streams="));
+        assert!(path.contains("btcusdt@trade"), "path={path}");
+        assert!(path.contains("btcusdt@depth20@100ms"), "path={path}");
+        assert!(path.contains("ethusdt@trade"), "path={path}");
+        assert!(path.starts_with("?streams="), "path={path}");
+        // Each symbol has 2 streams (trade + depth)
+        let count = path.matches("@trade").count() + path.matches("@depth20@100ms").count();
+        assert_eq!(count, 4, "expected 4 stream entries for 2 symbols");
     }
 
     #[test]
@@ -510,6 +624,7 @@ mod tests {
             feed_connected: AtomicBool::new(true),
             symbols: Mutex::new(vec!["btcusdt".into()]),
             ring: Mutex::new(Some(Arc::new(RingBuffer::new(1024)))),
+            order_book: RwLock::new(HashMap::new()),
             task_handle: Mutex::new(None),
             max_reconnect_secs: DEFAULT_MAX_RECONNECT_SECS,
             base_delay_ms: DEFAULT_BASE_DELAY_MS,

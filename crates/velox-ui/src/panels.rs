@@ -203,6 +203,117 @@ impl PanelManager {
             });
         });
 
+        // ── Right panel: DOM Ladder (Order Book Depth) ────────────
+        let depth = state.depth.clone();
+        egui::SidePanel::right("dom_ladder")
+            .resizable(true)
+            .default_width(200.0)
+            .min_width(120.0)
+            .show(ctx, |ui| {
+                ui.heading("DOM");
+                ui.separator();
+
+                if let Some(ref book) = depth {
+                    // Find spread
+                    let spread = book.asks.first().map(|a| a.price).unwrap_or(0.0)
+                        - book.bids.first().map(|b| b.price).unwrap_or(0.0);
+                    let mid = book.asks.first().map(|a| a.price).unwrap_or(0.0) * 0.5
+                        + book.bids.first().map(|b| b.price).unwrap_or(0.0) * 0.5;
+
+                    // Price precision: derive from price magnitude
+                    let prec = if mid > 1000.0 { 2 } else if mid > 1.0 { 4 } else { 6 };
+
+                    ui.label(format!(
+                        "Spread: {:.prec$}",
+                        spread,
+                        prec = prec,
+                    ));
+                    ui.label(format!(
+                        "Mid:    {:.prec$}",
+                        mid,
+                        prec = prec,
+                    ));
+                    ui.separator();
+
+                    // Find max total depth for bar scaling
+                    let max_bid: f64 = book.bids.iter().map(|l| l.size).fold(0.0, f64::max);
+                    let max_ask: f64 = book.asks.iter().map(|l| l.size).fold(0.0, f64::max);
+                    let max_total = max_bid.max(max_ask).max(1.0);
+
+                    // ── Asks (red, descending) ──────────────────────
+                    // Show best ask at top, worst ask at bottom
+                    let ask_height = 18.0;
+                    let asks_visible = (ui.available_height() / ask_height).ceil() as usize;
+                    let start_ask = book.asks.len().saturating_sub(asks_visible);
+                    if start_ask > 0 {
+                        ui.label(format!("... {} more", start_ask));
+                    }
+                    for level in book.asks.iter().skip(start_ask) {
+                        let frac = (level.size / max_total).min(1.0) as f32;
+                        ui.horizontal(|ui| {
+                            // Volume bar (red tint)
+                            let bar_color = egui::Color32::from_rgba_premultiplied(
+                                180, 40, 40, (frac * 200.0) as u8,
+                            );
+                            let bar_rect = ui.available_rect_before_wrap();
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    egui::pos2(
+                                        bar_rect.right() - frac * bar_rect.width(),
+                                        bar_rect.top(),
+                                    ),
+                                    egui::vec2(frac * bar_rect.width(), ask_height),
+                                ),
+                                0.0,
+                                bar_color,
+                            );
+                            ui.label(format!("{:.prec$}", level.price, prec = prec));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(format!("{:.4}", level.size));
+                            });
+                        });
+                    }
+
+                    // ── Spread / midpoint separator ─────────────────
+                    ui.separator();
+
+                    // ── Bids (green, descending) ────────────────────
+                    let bids_visible = (ui.available_height() / ask_height).ceil() as usize;
+                    for level in book.bids.iter().take(bids_visible) {
+                        let frac = (level.size / max_total).min(1.0) as f32;
+                        ui.horizontal(|ui| {
+                            // Volume bar (green tint)
+                            let bar_color = egui::Color32::from_rgba_premultiplied(
+                                40, 160, 40, (frac * 200.0) as u8,
+                            );
+                            let bar_rect = ui.available_rect_before_wrap();
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(
+                                    egui::pos2(
+                                        bar_rect.right() - frac * bar_rect.width(),
+                                        bar_rect.top(),
+                                    ),
+                                    egui::vec2(frac * bar_rect.width(), ask_height),
+                                ),
+                                0.0,
+                                bar_color,
+                            );
+                            ui.label(format!("{:.prec$}", level.price, prec = prec));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(format!("{:.4}", level.size));
+                            });
+                        });
+                    }
+
+                    // Underlying levels hint
+                    if book.bids.len() > bids_visible {
+                        ui.label(format!("... {} more", book.bids.len() - bids_visible));
+                    }
+                } else {
+                    ui.label("Waiting for depth data...");
+                }
+            });
+
         // ── Right panel: Positions & Account ──────────────────────
         // Collect order/position data outside closures to avoid borrow issues
         // with the cancel button (which needs &mut state).
