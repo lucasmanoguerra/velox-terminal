@@ -18,7 +18,7 @@ Current state of the velox-terminal project.
 - **OMS**: State machine validation, order manager, fill management, property-based tests
 - **Risk**: Validators, position limits, circuit breaker
 - **Broker**: BrokerClient trait (port) + MockBroker
-- **Exchange adapter**: Binance WebSocket feed (trades) con auto-reconnect (backoff + jitter)
+- **Exchange adapter**: Binance WebSocket feed (trades + depth20) con auto-reconnect (backoff + jitter)
 - **Charting**: wgpu renderer, WGSL shaders, instanced geometry, zoom/pan
 - **UI**: egui panels over wgpu, dark theme, order entry, positions, multi-timeframe selector
 - **Connectivity docs**: FIX protocol, WebSocket feed, reconnection strategy
@@ -28,11 +28,13 @@ Current state of the velox-terminal project.
 ## In Progress (Phase 2-3: Adapters)
 
 - Conectores a más exchanges (BingX, Bybit, Kraken)
-- Order book depth stream
 - Backtesting con slippage
 
 ## Completed Recently
 
+- **Order book depth (DOM ladder)**: Binance @depth20@100ms combined stream with
+  trade feed. DOM panel shows top-20 bids/asks with green/red volume bars, spread,
+  and mid price. Fixed BinanceFeed to use proper combined stream endpoint.
 - **OMS + UI Integration**: PaperTrader mock execution engine with auto-fill at candle close
   price, weighted-average position tracking, realized/unrealized P&L, account equity.
   Buy/Sell buttons wired, Positions panel shows open orders (with cancel), positions with

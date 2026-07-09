@@ -202,4 +202,185 @@ impl ChartInteraction {
     pub fn is_dragging(&self) -> bool {
         self.is_dragging
     }
+
+    // ── Scrollbar ──────────────────────────────────────────────────
+
+    /// Compute normalized scroll position (0.0 = oldest, 1.0 = newest)
+    /// within the full data range.
+    ///
+    /// `data_start`/`data_end` are the min/max timestamps of all available candles.
+    pub fn scroll_pos(&self, data_start: f64, data_end: f64) -> f64 {
+        if data_end <= data_start {
+            return 0.0;
+        }
+        let view_center = (self.view.time_start + self.view.time_end) / 2.0;
+        let total_range = data_end - data_start;
+        let clamped = view_center.clamp(data_start, data_end);
+        (clamped - data_start) / total_range
+    }
+
+    /// Set the view so its center corresponds to the given scroll position.
+    ///
+    /// `fraction` is a normalized value (0.0 = oldest, 1.0 = newest).
+    /// `data_start`/`data_end` are the full data range timestamps.
+    pub fn set_scroll_pos(&mut self, fraction: f64, data_start: f64, data_end: f64) {
+        if data_end <= data_start {
+            return;
+        }
+        let total_range = data_end - data_start;
+        let view_half = self.view.time_range() / 2.0;
+        let max_half = total_range / 2.0;
+
+        // When the view is wider than the data, center everything
+        let center = if view_half >= max_half {
+            (data_start + data_end) / 2.0
+        } else {
+            let raw_center = data_start + fraction * total_range;
+            // Clamp so the view doesn't extend beyond the data
+            raw_center.clamp(data_start + view_half, data_end - view_half)
+        };
+        self.view.time_start = center - view_half;
+        self.view.time_end = center + view_half;
+    }
+
+    /// Get the full data timestamp range from candles.
+    pub fn data_range(candles: &[Candle]) -> (f64, f64) {
+        if candles.is_empty() {
+            return (0.0, 1.0);
+        }
+        let start = candles.first().unwrap().timestamp.timestamp() as f64;
+        let end = candles.last().unwrap().timestamp.timestamp() as f64;
+        if end <= start {
+            (start, start + 60.0)
+        } else {
+            (start, end)
+        }
+    }
+
+    /// Whether the view is at the rightmost edge of the data (i.e., showing the newest data).
+    /// Used to decide whether to auto-scroll when new candles arrive.
+    pub fn is_at_right_edge(&self, data_end: f64) -> bool {
+        self.view.time_end >= data_end - 1.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    fn make_candle(ts_secs: i64) -> Candle {
+        Candle {
+            symbol: *b"BTCUSD\0\0",
+            open: 50000.0,
+            high: 50100.0,
+            low: 49900.0,
+            close: 50050.0,
+            volume: 100.0,
+            timestamp: Utc.timestamp_opt(ts_secs, 0).unwrap(),
+            timeframe_secs: 60,
+            trade_count: Some(10),
+            vwap: Some(50050.0),
+        }
+    }
+
+    #[test]
+    fn test_scroll_pos_at_center() {
+        let view = ChartView {
+            price_min: 49900.0,
+            price_max: 50100.0,
+            time_start: 200.0,
+            time_end: 400.0,
+        };
+        let interaction = ChartInteraction::new(view);
+        let pos = interaction.scroll_pos(0.0, 600.0);
+        // View center = 300, data range = 0..600
+        // (300 - 0) / 600 = 0.5
+        assert!((pos - 0.5).abs() < 1e-6, "Expected 0.5, got {pos}");
+    }
+
+    #[test]
+    fn test_scroll_pos_at_right_edge() {
+        let view = ChartView {
+            price_min: 49900.0,
+            price_max: 50100.0,
+            time_start: 500.0,
+            time_end: 600.0,
+        };
+        let interaction = ChartInteraction::new(view);
+        let pos = interaction.scroll_pos(0.0, 600.0);
+        // View center = 550, data range = 0..600
+        // (550 - 0) / 600 ≈ 0.917
+        assert!((pos - 0.916666).abs() < 1e-3, "Expected ~0.917, got {pos}");
+    }
+
+    #[test]
+    fn test_set_scroll_pos_far_left() {
+        let mut interaction = ChartInteraction::new(ChartView {
+            price_min: 49900.0,
+            price_max: 50100.0,
+            time_start: 200.0,
+            time_end: 400.0,
+        });
+        interaction.set_scroll_pos(0.0, 0.0, 600.0);
+        // View range = 200, half = 100
+        // Center clamped to 0 + 100 = 100
+        // time_start = 0, time_end = 200
+        assert!((interaction.view.time_start - 0.0).abs() < 1e-6);
+        assert!((interaction.view.time_end - 200.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_set_scroll_pos_far_right() {
+        let mut interaction = ChartInteraction::new(ChartView {
+            price_min: 49900.0,
+            price_max: 50100.0,
+            time_start: 200.0,
+            time_end: 400.0,
+        });
+        interaction.set_scroll_pos(1.0, 0.0, 600.0);
+        // View range = 200, half = 100
+        // Center clamped to 600 - 100 = 500
+        // time_start = 400, time_end = 600
+        assert!((interaction.view.time_start - 400.0).abs() < 1e-6);
+        assert!((interaction.view.time_end - 600.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_is_at_right_edge() {
+        let view = ChartView {
+            price_min: 49900.0,
+            price_max: 50100.0,
+            time_start: 500.0,
+            time_end: 600.0,
+        };
+        let interaction = ChartInteraction::new(view);
+        assert!(interaction.is_at_right_edge(600.0));
+        assert!(!interaction.is_at_right_edge(700.0));
+    }
+
+    #[test]
+    fn test_data_range_from_candles() {
+        let candles = vec![make_candle(100), make_candle(200), make_candle(300)];
+        let (start, end) = ChartInteraction::data_range(&candles);
+        assert!((start - 100.0).abs() < 1e-6);
+        assert!((end - 300.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_scroll_does_not_panic_empty() {
+        let view = ChartView {
+            price_min: 0.0,
+            price_max: 100.0,
+            time_start: 0.0,
+            time_end: 1.0,
+        };
+        let mut interaction = ChartInteraction::new(view);
+        // These should not panic
+        let pos = interaction.scroll_pos(0.0, 0.0);
+        assert!((pos - 0.0).abs() < 1e-6);
+        interaction.set_scroll_pos(0.5, 0.0, 0.0);
+        // With data_end=0, view right edge (1.0) is past data end
+        assert!(interaction.is_at_right_edge(0.0));
+    }
 }

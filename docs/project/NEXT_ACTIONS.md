@@ -25,6 +25,9 @@ Próximas acciones priorizadas después del último avance.
 | WebSocket market data feed real (Binance) | P2 | 2026-07-08 |
 | Multi-timeframe (1m/5m/1h) con selector UI | P2 | 2026-07-08 |
 | Auto-reconnect WebSocket con backoff exponencial + jitter | P2 | 2026-07-08 |
+| **OMS + UI Integration** (PaperTrader, Buy/Sell, Positions, P&L) | **P1** | **2026-07-08** |
+| **Indicadores overlay en chart** (SMA/EMA/RSI GPU lines) | **P1** | **2026-07-08** |
+| **DOM ladder / Order Book Depth** (Binance @depth20@100ms) | **P1** | **2026-07-08** |
 
 ---
 
@@ -36,9 +39,6 @@ Próximas acciones priorizadas después del último avance.
 
 ### P1 — Inmediato (construir sobre el flujo end-to-end)
 
-- [ ] **Conectar OMS con la UI** — botón Buy/Sell/Place Order debe crear órdenes reales contra MockBroker
-- [ ] **Indicadores overlay en chart** — SMA/EMA/RSI renderizados como líneas sobre las velas (nuevos pipelines wgpu)
-- [ ] **DOM depth / order book ladder** — primer panel de order book (bid/ask) con datos reales via Binance `@depth20@100ms`
 - [ ] **Scrollbar horizontal** — para navegar velas históricas sin zoom infinito
 - [ ] **CandleAggregator multi-tick fix** — pipeline consume ticks en lote (RingBuffer.pop_n) en vez de 1 por frame
 
@@ -56,7 +56,6 @@ Próximas acciones priorizadas después del último avance.
 - [ ] Benchmarks de latencia end-to-end (criterion + Tracy)
 - [ ] Documentación compliance (MiFID II, SEC)
 - [ ] Compilación cruzada y empaquetado (MSI/DMG/AppImage)
-- [ ] DOM ladder (no solo order book plano)
 - [ ] Hotkeys configurables
 - [ ] Motor de scripting (Lua embebido)
 
@@ -72,13 +71,9 @@ Próximas acciones priorizadas después del último avance.
 
 ## Suggested Next Task
 
-**P1 · Indicadores overlay en chart (SMA/EMA/RSI)**
+**P1 · Scrollbar horizontal + CandleAggregator multi-tick**
 
-El chart ya renderiza velas y volumen. El siguiente paso lógico es agregar líneas de indicadores técnicos como overlays. Esto implica:
-1. `velox-indicators` → exponer valores como `Vec<f32>` en un buffer linearizado
-2. `velox-gpu` → nuevo shader `line.wgsl` (ya existe stub) con pipeline de líneas
-3. `velox-chart` → `IndicatorRenderer` que administra buffers de vértices de líneas
-4. `AppState` → indicadores activos + dirty flag
-5. UI → toggle de indicadores en menú o panel lateral
+Los P1 inmediatos que quedan son:
 
-Estimación: ~2-3 sesiones de implementación.
+1. **Scrollbar horizontal** — botón/materializar scroll para navegar velas sin perder zoom/pan actual
+2. **CandleAggregator multi-tick** — `RingBuffer.pop_n()` para consumir múltiples ticks por frame en vez de uno a la vez

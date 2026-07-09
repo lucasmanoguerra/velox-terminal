@@ -21,7 +21,7 @@
 //!
 //! | Exchange | Trades | Quotes | Status |
 //! |----------|--------|--------|--------|
-//! | Binance  | ✅     | ⏳     | Active |
+//! | Binance  | ✅     | ✅     | Active |
 //! | Kraken   | ❌     | ❌     | Planned |
 //! | Coinbase | ❌     | ❌     | Planned |
 

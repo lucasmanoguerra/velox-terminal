@@ -29,6 +29,9 @@ impl PanelManager {
     /// will be updated to reflect the central panel's rectangle (in egui
     /// logical pixels) for the GPU chart renderer.
     pub fn show(&mut self, ctx: &egui::Context, state: &mut AppState) {
+        // Sync scroll position from the chart view before building UI
+        state.sync_scroll_pos();
+
         // ── Top menu bar ──────────────────────────────────────────
         egui::TopBottomPanel::top("menu_bar")
             .min_height(28.0)
@@ -191,14 +194,63 @@ impl PanelManager {
         egui::CentralPanel::default().show(ctx, |ui| {
             state.chart_panel_rect = ui.max_rect();
 
-            // Show crosshair-style info at bottom-left of chart
-            let info = format!(
-                "{} · Candles: {} | Zoom stack: {}",
-                state.timeframe_label(),
-                state.candles.len(),
-                state.chart_interaction.zoom_stack_size(),
-            );
+            // ── Horizontal scrollbar at the bottom ──────────────────
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                // Scrollbar row
+                ui.horizontal(|ui| {
+                    // Follow mode toggle
+                    let follow_label = if state.follow_mode {
+                        "🔒 Follow"
+                    } else {
+                        "🔓 Free"
+                    };
+                    if ui.selectable_label(state.follow_mode, follow_label).clicked() {
+                        state.toggle_follow_mode();
+                        // If follow just activated, snap to newest
+                        if state.follow_mode {
+                            let (_, data_end) =
+                                velox_chart::interaction::ChartInteraction::data_range(&state.candles);
+                            let range = state.chart_interaction.view.time_range();
+                            state.chart_interaction.view.time_end = data_end;
+                            state.chart_interaction.view.time_start = data_end - range;
+                            state.needs_redraw = true;
+                        }
+                    }
+
+                    // Scrollbar slider
+                    let has_data = !state.candles.is_empty();
+                    let mut scroll = state.scroll_pos;
+                    let response = ui.add(
+                        egui::Slider::new(&mut scroll, 0.0..=1.0)
+                            .clamping(egui::SliderClamping::Never)
+                            .show_value(false)
+                            .trailing_fill(true)
+                            .custom_formatter(|v, _| {
+                                format!("{:.0}%", v * 100.0)
+                            })
+                            .custom_parser(|s| {
+                                s.trim_end_matches('%').parse::<f64>().ok().map(|v| v / 100.0)
+                            })
+                    );
+                    if has_data && response.dragged() {
+                        state.set_scroll_pos(scroll);
+                        // User manually scrolled → disable follow mode
+                        if state.follow_mode {
+                            state.follow_mode = false;
+                        }
+                    }
+
+                    // Percentage label
+                    ui.label(format!("{:.0}%", state.scroll_pos * 100.0));
+                });
+
+                // Crosshair-style info below scrollbar
+                let info = format!(
+                    "{} · Candles: {} | Zoom stack: {}",
+                    state.timeframe_label(),
+                    state.candles.len(),
+                    state.chart_interaction.zoom_stack_size(),
+                );
                 ui.label(info);
             });
         });

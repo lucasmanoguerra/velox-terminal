@@ -81,6 +81,14 @@ pub struct AppState {
     // ── Order book depth ───────────────────────────────────────────────
     /// Latest order book snapshot (bids/asks) for the current symbol.
     pub depth: Option<OrderBook>,
+
+    // ── Scrollbar / follow ─────────────────────────────────────────────
+    /// Normalized scroll position of the chart view (0.0 = oldest, 1.0 = newest).
+    /// Updated each frame from the chart interaction view.
+    pub scroll_pos: f64,
+
+    /// Whether to auto-scroll to the newest data when new candles arrive.
+    pub follow_mode: bool,
 }
 
 impl AppState {
@@ -112,6 +120,8 @@ impl AppState {
             order_error: None,
             order_success: None,
             depth: None,
+            scroll_pos: 0.0,
+            follow_mode: true,
         }
     }
 
@@ -140,6 +150,8 @@ impl AppState {
             order_error: None,
             order_success: None,
             depth: None,
+            scroll_pos: 0.0,
+            follow_mode: true,
         }
     }
 
@@ -196,6 +208,17 @@ impl AppState {
                     did_reset = true;
                 }
                 self.candles.push(candle);
+
+                // Auto-scroll to newest data if follow mode is active
+                if self.follow_mode && !self.candles.is_empty() {
+                    let (_, data_end) = ChartInteraction::data_range(&self.candles);
+                    if !self.chart_interaction.is_at_right_edge(data_end) {
+                        // Align right edge of view with newest data
+                        let range = self.chart_interaction.view.time_range();
+                        self.chart_interaction.view.time_end = data_end;
+                        self.chart_interaction.view.time_start = data_end - range;
+                    }
+                }
             }
         }
 
@@ -256,6 +279,37 @@ impl AppState {
     /// Connect to a live feed.
     pub fn set_feed_connected(&mut self, connected: bool) {
         self.feed_connected = connected;
+    }
+
+    // ── Scrollbar ──────────────────────────────────────────────────────
+
+    /// Sync `scroll_pos` from the current chart view and data range.
+    /// Call once per frame before building UI panels.
+    pub fn sync_scroll_pos(&mut self) {
+        if self.candles.is_empty() {
+            self.scroll_pos = 0.0;
+            return;
+        }
+        let (data_start, data_end) = ChartInteraction::data_range(&self.candles);
+        self.scroll_pos = self.chart_interaction.scroll_pos(data_start, data_end);
+    }
+
+    /// Set the scroll position and update the chart view accordingly.
+    /// Called when the user drags the scrollbar.
+    pub fn set_scroll_pos(&mut self, fraction: f64) {
+        if self.candles.is_empty() {
+            return;
+        }
+        let (data_start, data_end) = ChartInteraction::data_range(&self.candles);
+        self.chart_interaction
+            .set_scroll_pos(fraction, data_start, data_end);
+        self.scroll_pos = fraction;
+        self.needs_redraw = true;
+    }
+
+    /// Toggle follow mode (auto-scroll to newest data).
+    pub fn toggle_follow_mode(&mut self) {
+        self.follow_mode = !self.follow_mode;
     }
 
     // ── Order methods ─────────────────────────────────────────────────

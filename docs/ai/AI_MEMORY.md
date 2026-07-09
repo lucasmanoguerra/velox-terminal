@@ -48,6 +48,37 @@ Positions panel ← PaperTrader::positions() (on-the-fly from fills)
 
 ---
 
+## 2026-07-08 — Order book depth (DOM ladder) with Binance @depth20@100ms
+
+**Decision**: Implementar panel de DOM ladder (order book depth) renderizado en egui,
+con datos en vivo de Binance via el stream `@depth20@100ms`. Los niveles de bid/ask
+se muestran con barras de volumen (verde/rojo), spread, y precio medio.
+
+**Problema resuelto**: No había visibilidad de la profundidad del mercado. La terminal
+mostraba velas y trades pero no la liquidez disponible en cada nivel de precio.
+
+**Key changes**:
+- `velox-core/market.rs`: +`OrderBookLevel`(price,size), +`OrderBook`(bids,asks,last_update_id)
+- `binance.rs`: rewrite de conexión — combined streams `/stream?streams=...` para
+  soportar `@trade` + `@depth20@100ms` simultáneamente
+  - `handle_depth()`: parsea snapshot de top-20 bids/asks
+  - `order_book(symbol)`: accessor via `Arc<RwLock<HashMap>>` (try_read sin bloqueo)
+  - `build_stream_path()`: ahora genera `?streams=sym@trade/sym@depth20@100ms`
+  - `handle_message()`: unwrap de combined stream `{stream, data}`, routing por
+    nombre de stream (terminado en `@trade` o `@depth20@100ms`)
+- `app_state.rs`: +`depth: Option<OrderBook>`, incluye `OrderBook` en imports
+- `panels.rs`: +DOM ladder panel (SidePanel::right entre chart y positions)
+  - Asks en rojo (descendente, best ask primero), Bids en verde
+  - Barras de volumen proporcionales al depth total
+  - Precisión de precio autoescalada según magnitud (1000+ → 2 decimales)
+  - Spread + Mid price en header
+  - Scroll vertical con overflow
+- `app.rs`: `poll_market_data()` lee `feed.order_book(symbol)` cada frame
+
+**Files changed**: 5 files, +280−23 líneas, 59 tests, 0 clippy warnings.
+
+---
+
 ## 2026-07-08 — Indicator overlays on chart (SMA/EMA/RSI GPU lines)
 
 **Decision**: Implementar overlays de indicadores técnicos (SMA, EMA, RSI) renderizados como líneas GPU sobre el chart de velas. El pipeline de renderizado centralizado (`line_pipeline` en ChartRenderer) recibe datos desde OverlayManager, se procesan en CPU con NaN-aware segment splitting, y se renderizan con el pipeline `line.wgsl` v2 (vertex-buffer-based, per-vertex colors).
