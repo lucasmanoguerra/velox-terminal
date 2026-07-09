@@ -32,6 +32,9 @@ Current state of the velox-terminal project.
 
 ## Completed Recently
 
+- **Horizontal scrollbar + follow mode**: Scrollbar slider at bottom of chart
+  for navigating historical candles. Follow mode auto-scrolls to newest data.
+  Toggle with 🔒Follow/🔓Free button.
 - **Order book depth (DOM ladder)**: Binance @depth20@100ms combined stream with
   trade feed. DOM panel shows top-20 bids/asks with green/red volume bars, spread,
   and mid price. Fixed BinanceFeed to use proper combined stream endpoint.

@@ -435,6 +435,40 @@ Binance WS ──> RingBuffer ──> Pipeline.poll() ──> mpsc channel ─�
 
 ---
 
+## 2026-07-09 — Horizontal scrollbar with follow mode
+
+**Decision**: Add horizontal scrollbar at the bottom of the chart panel,
+with a follow-mode toggle that auto-scrolls to newest data. The scrollbar
+is an egui slider (0%–100%) rendered below the chart area in CentralPanel.
+
+**Problema resuelto**: No way to navigate historical candles without zooming
+out and panning. Users had to drag to scroll, and there was no visual indicator
+of where the view was within the full data range.
+
+**Key changes**:
+- `interaction.rs`: +`scroll_pos()`, `set_scroll_pos()`, `data_range()`,
+  `is_at_right_edge()` — normalized scroll position computed from view + data
+- `app_state.rs`: +`scroll_pos: f64`, `follow_mode: bool`, `sync_scroll_pos()`,
+  `set_scroll_pos()`, `toggle_follow_mode()`, auto-scroll in `poll_candles()`
+  when follow_mode is active
+- `panels.rs`: +egui slider (0..1) below chart area with percentage label,
+  🔒Follow/🔓Free toggle button, auto-disable follow on manual scroll drag
+
+**Data flow**:
+```
+New candle arrives → poll_candles()
+  → if follow_mode & not at right edge → scroll view to latest
+Next frame → sync_scroll_pos() → UI reads scroll_pos → slider updates
+User drags slider → set_scroll_pos(fraction) → chart view adjusts
+  → follow_mode disabled (user is browsing history)
+User clicks Follow → follow_mode = true → snaps to newest
+```
+
+**Files changed**: 3 files, +301−0 líneas (interaction.rs, app_state.rs, panels.rs)
+**Tests**: 66 pasando (+7 scrollbar), 0 clippy warnings.
+
+---
+
 ## 2026-07-08 — Hexagonal architecture + community standards + CI fixes
 
 **Decision**: Adopt Hexagonal (Ports & Adapters) + UNIX philosophy as the architectural guide. Create community files (CONTRIBUTING.md, CODE_OF_CONDUCT.md, SECURITY.md). Fix CI pipeline failures (fmt, clippy, cargo-deny).

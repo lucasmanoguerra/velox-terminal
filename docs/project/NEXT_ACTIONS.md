@@ -28,6 +28,7 @@ Próximas acciones priorizadas después del último avance.
 | **OMS + UI Integration** (PaperTrader, Buy/Sell, Positions, P&L) | **P1** | **2026-07-08** |
 | **Indicadores overlay en chart** (SMA/EMA/RSI GPU lines) | **P1** | **2026-07-08** |
 | **DOM ladder / Order Book Depth** (Binance @depth20@100ms) | **P1** | **2026-07-08** |
+| **Scrollbar horizontal + follow mode** | **P1** | **2026-07-09** |
 
 ---
 
@@ -39,7 +40,6 @@ Próximas acciones priorizadas después del último avance.
 
 ### P1 — Inmediato (construir sobre el flujo end-to-end)
 
-- [ ] **Scrollbar horizontal** — para navegar velas históricas sin zoom infinito
 - [ ] **CandleAggregator multi-tick fix** — pipeline consume ticks en lote (RingBuffer.pop_n) en vez de 1 por frame
 
 ### P2 — Próximo (features de trading real)
@@ -71,9 +71,13 @@ Próximas acciones priorizadas después del último avance.
 
 ## Suggested Next Task
 
-**P1 · Scrollbar horizontal + CandleAggregator multi-tick**
+**P1 · CandleAggregator multi-tick (RingBuffer.pop_n)**
 
-Los P1 inmediatos que quedan son:
+El único P1 que queda es la optimización de procesamiento de ticks. El pipeline ya
+consume todos los ticks disponibles por frame (drain loop), pero cada tick hace
+atomics individuales. Una versión `pop_n(&mut Vec, n)` reduciría los fences de
+memoria al procesar batches.
 
-1. **Scrollbar horizontal** — botón/materializar scroll para navegar velas sin perder zoom/pan actual
-2. **CandleAggregator multi-tick** — `RingBuffer.pop_n()` para consumir múltiples ticks por frame en vez de uno a la vez
+1. `RingBuffer::pop_n(&self, buf: &mut Vec<MarketEvent>, max: usize) → usize`
+2. `MarketDataPipeline::poll()` usaría `pop_n` en vez de `pop` en loop
+3. Test: verificar que pop_n retorna hasta `max` eventos sin perder datos
