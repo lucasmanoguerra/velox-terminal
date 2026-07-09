@@ -4,6 +4,50 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-09 — Wire BinanceBroker into OMS + UI (live/paper toggle)
+
+**Decision**: Extender AppState con `TradingMode` enum (Paper/Live), un
+`Option<Arc<dyn BrokerClient>>` opcional, y señales connect/disconnect
+procesadas en el event loop de `app.rs`. Los botones Buy/Sell delegan
+al broker en Live mode sin bloquear el event loop (tokio::spawn).
+
+**Problema resuelto**: BinanceBroker implementaba BrokerClient pero no
+estaba conectado al sistema. No había forma de elegir entre paper trading
+y ejecución real desde la UI.
+
+**Arquitectura**:
+- `submit_order()` en BinanceBroker ahora usa `order.client_order_id` si
+  está pre-set, en lugar de generar siempre un UUID nuevo — esto permite
+  que PaperTrader pase su propio OrderId para idempotencia cross-system.
+- `TradingMode::Paper` → solo PaperTrader (comportamiento legacy)
+- `TradingMode::Live` → PaperTrader (tracking local) + broker.submit_order()
+  via tokio::spawn (asíncrono, no bloquea event loop)
+- Broker config UI: 3 text inputs (API key, secret, URL) + Connect/Disconnect
+  buttons en el left panel (order entry), debajo de los botones Buy/Sell.
+- Status bar muestra modo activo: "Paper", "● Live", "◌ Connecting"
+- app.rs procesa connect_requested → crea BinanceBroker + spawn connect()
+  + state.set_broker() en AboutToWait handler.
+
+**Flow en vivo**:
+```
+Buy button → buy_market()
+  → paper_trader.submit_market_order() (local tracking, síncrono)
+  → (si Live) broker.submit_order() via tokio::spawn (ejecución real, async)
+```
+
+**Files changed**: 7 files, +392−50 líneas.
+- `crates/velox-exchange/src/binance_broker.rs` (use client_order_id if set)
+- `crates/velox-ui/src/app_state.rs` (+TradingMode, broker, signals, submit_to_broker)
+- `crates/velox-ui/src/panels.rs` (+broker config section, status bar mode)
+- `crates/velox-ui/Cargo.toml` (+velox-broker, async-trait deps)
+- `crates/velox-terminal/src/app.rs` (+connect/disconnect signal handling)
+- `Cargo.toml` (workspace: +async-trait)
+- `docs/ai/AI_MEMORY.md` (this entry)
+
+**Tests**: 114 pasando (antes 107 → +7 app_state tests), 0 clippy warnings.
+
+---
+
 ## 2026-07-09 — BinanceBroker: BrokerClient trait implementation
 
 **Decision**: Implementar `BinanceBroker` que implementa el trait `BrokerClient` de
