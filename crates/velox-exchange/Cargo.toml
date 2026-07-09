@@ -9,6 +9,7 @@ description = "Exchange connectors: WebSocket, REST, FIX for crypto and traditio
 [dependencies]
 velox-core = { path = "../velox-core" }
 velox-md = { path = "../velox-md" }
+uuid.workspace = true
 
 # Async runtime
 tokio = { workspace = true, features = ["sync", "time"] }
@@ -33,6 +34,10 @@ reqwest.workspace = true
 hmac.workspace = true
 sha2.workspace = true
 hex.workspace = true
+
+# Broker trait (for implementing BrokerClient)
+velox-broker = { path = "../velox-broker" }
+async-trait = "0.1"
 
 [dev-dependencies]
 httpmock = "0.7"

@@ -5081,6 +5081,7 @@ dependencies = [
 name = "velox-exchange"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "futures-util",
  "hex",
@@ -5094,6 +5095,8 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
+ "uuid",
+ "velox-broker",
  "velox-core",
  "velox-md",
 ]

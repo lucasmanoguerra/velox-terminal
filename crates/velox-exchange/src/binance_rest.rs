@@ -202,6 +202,7 @@ pub struct BinanceCancelledOrder {
 /// }
 /// # }
 /// ```
+#[derive(Clone)]
 pub struct BinanceRestClient {
     /// Binance API key.
     api_key: String,
