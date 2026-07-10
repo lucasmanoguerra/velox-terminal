@@ -337,7 +337,7 @@ impl PanelManager {
                     {
                         state.connect_requested = true;
                     }
-                    ui.label("Testnet? Use testnet.binance.vision");
+                    ui.checkbox(&mut state.connect_use_testnet, "Use Testnet");
                 }
             });
 

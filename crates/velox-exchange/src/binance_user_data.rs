@@ -34,8 +34,11 @@ use crate::binance_rest::BinanceRestClient;
 
 // ── Constants ────────────────────────────────────────────────────────────
 
-/// Binance WebSocket base URL for **raw** streams (single-stream, no wrapper).
+/// Binance WebSocket base URL for **raw** streams (production).
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/ws";
+
+/// Binance testnet WebSocket base URL for **raw** streams.
+const BINANCE_TESTNET_WS_URL: &str = "wss://testnet.binance.vision:9443/ws";
 
 /// Listen key keepalive interval (recommended: every 30 min for a 60-min TTL).
 const KEEPALIVE_INTERVAL_SECS: u64 = 30 * 60;
@@ -167,6 +170,8 @@ struct UserDataStreamInner {
     task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Channel sender for parsed events.
     event_sender: Mutex<Option<mpsc::UnboundedSender<UserDataEvent>>>,
+    /// Whether to use the Binance testnet WebSocket endpoint.
+    use_testnet: bool,
 }
 
 /// Real-time user data stream from Binance.
@@ -216,6 +221,7 @@ impl BinanceUserDataStream {
                 listen_key: Mutex::new(None),
                 task_handle: Mutex::new(None),
                 event_sender: Mutex::new(None),
+                use_testnet,
             }),
         }
     }
@@ -361,7 +367,12 @@ impl BinanceUserDataStream {
             }
 
             // ── Connect ─────────────────────────────────────────────
-            let ws_url = format!("{}/{}", BINANCE_WS_URL, listen_key);
+            let base_url = if inner.use_testnet {
+                BINANCE_TESTNET_WS_URL
+            } else {
+                BINANCE_WS_URL
+            };
+            let ws_url = format!("{}/{}", base_url, listen_key);
             tracing::info!("User data stream connecting...");
 
             match connect_async(&ws_url).await {
@@ -910,6 +921,7 @@ mod tests {
             listen_key: Mutex::new(None),
             task_handle: Mutex::new(None),
             event_sender: Mutex::new(None),
+            use_testnet: false,
         });
 
         // Should not panic
@@ -928,6 +940,7 @@ mod tests {
             listen_key: Mutex::new(None),
             task_handle: Mutex::new(None),
             event_sender: Mutex::new(Some(tx)),
+            use_testnet: false,
         });
 
         let json = r#"{

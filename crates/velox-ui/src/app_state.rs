@@ -151,6 +151,8 @@ pub struct AppState {
     pub disconnect_requested: bool,
     /// Last broker connection error.
     pub broker_error: Option<String>,
+    /// Whether to use Binance testnet (testnet.binance.vision) for market data and trading.
+    pub connect_use_testnet: bool,
 }
 
 impl AppState {
@@ -198,6 +200,7 @@ impl AppState {
             connect_requested: false,
             disconnect_requested: false,
             broker_error: None,
+            connect_use_testnet: false,
         }
     }
 
@@ -242,6 +245,7 @@ impl AppState {
             connect_requested: false,
             disconnect_requested: false,
             broker_error: None,
+            connect_use_testnet: false,
         }
     }
 
@@ -272,6 +276,7 @@ impl AppState {
                 self.connect_api_key = config.api_key;
                 self.connect_api_secret = config.api_secret;
                 self.connect_base_url = config.base_url;
+                self.connect_use_testnet = config.paper_trading;
             }
             Ok(None) => { /* no saved credentials */ }
             Err(e) => {

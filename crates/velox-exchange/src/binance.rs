@@ -46,9 +46,12 @@ use velox_md::ring_buffer::{MarketEvent, RingBuffer};
 use crate::ExchangeFeed;
 use crate::error::ExchangeError;
 
-/// Binance WebSocket base URL for **combined** streams.
+/// Binance WebSocket base URL for **combined** streams (production).
 /// Combined streams wrap each message in `{"stream": "...", "data": {...}}`.
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/stream";
+
+/// Binance testnet WebSocket base URL for **combined** streams.
+const BINANCE_TESTNET_WS_URL: &str = "wss://testnet.binance.vision:9443/stream";
 
 /// Default maximum reconnect delay in seconds.
 const DEFAULT_MAX_RECONNECT_SECS: u64 = 60;
@@ -74,6 +77,8 @@ struct BinanceFeedInner {
     max_reconnect_secs: u64,
     /// Base delay for exponential backoff in milliseconds.
     base_delay_ms: u64,
+    /// Whether to use the Binance testnet WebSocket endpoint.
+    use_testnet: bool,
 }
 
 /// Binance exchange market data feed.
@@ -97,8 +102,15 @@ pub struct BinanceFeed {
 }
 
 impl BinanceFeed {
-    /// Create a new Binance feed (not yet connected).
+    /// Create a new Binance feed (production, not yet connected).
     pub fn new() -> Self {
+        Self::new_with_testnet(false)
+    }
+
+    /// Create a new Binance feed with testnet/production selection.
+    ///
+    /// * `use_testnet` — `true` for testnet, `false` for production.
+    pub fn new_with_testnet(use_testnet: bool) -> Self {
         Self {
             inner: Arc::new(BinanceFeedInner {
                 running: AtomicBool::new(false),
@@ -109,6 +121,7 @@ impl BinanceFeed {
                 task_handle: Mutex::new(None),
                 max_reconnect_secs: DEFAULT_MAX_RECONNECT_SECS,
                 base_delay_ms: DEFAULT_BASE_DELAY_MS,
+                use_testnet,
             }),
         }
     }
@@ -301,7 +314,12 @@ impl BinanceFeed {
 
             // ── 2. Attempt connection ─────────────────────────────
             let stream_path = Self::build_stream_path(&symbols);
-            let ws_url = format!("{}{}", BINANCE_WS_URL, stream_path);
+            let base_url = if inner.use_testnet {
+                BINANCE_TESTNET_WS_URL
+            } else {
+                BINANCE_WS_URL
+            };
+            let ws_url = format!("{}{}", base_url, stream_path);
 
             if attempt > 0 {
                 let delay =
@@ -628,6 +646,7 @@ mod tests {
             task_handle: Mutex::new(None),
             max_reconnect_secs: DEFAULT_MAX_RECONNECT_SECS,
             base_delay_ms: DEFAULT_BASE_DELAY_MS,
+            use_testnet: false,
         });
 
         let json = r#"{

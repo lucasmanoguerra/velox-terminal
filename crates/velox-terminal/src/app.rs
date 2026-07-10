@@ -186,7 +186,7 @@ impl App {
         }
 
         // ── Exchange Feed ───────────────────────────────────────────
-        let feed = BinanceFeed::new();
+        let feed = BinanceFeed::new_with_testnet(state.connect_use_testnet);
         feed.subscribe("BTC/USDT").ok();
         if let Err(e) = feed.start(ring) {
             tracing::warn!("Failed to start Binance feed (will retry): {e}");
@@ -349,12 +349,18 @@ impl App {
                     let config = BrokerConfig {
                         api_key: std::mem::take(&mut self.state.connect_api_key),
                         api_secret: std::mem::take(&mut self.state.connect_api_secret),
-                        base_url: if self.state.connect_base_url.is_empty() {
-                            "https://api.binance.com".into()
-                        } else {
-                            std::mem::take(&mut self.state.connect_base_url)
+                        base_url: {
+                            if self.state.connect_base_url.is_empty() {
+                                if self.state.connect_use_testnet {
+                                    "https://testnet.binance.vision".into()
+                                } else {
+                                    "https://api.binance.com".into()
+                                }
+                            } else {
+                                std::mem::take(&mut self.state.connect_base_url)
+                            }
                         },
-                        paper_trading: false,
+                        paper_trading: self.state.connect_use_testnet,
                     };
                     let b = broker.clone();
                     let c = config.clone();
