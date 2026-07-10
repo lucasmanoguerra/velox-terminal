@@ -160,6 +160,34 @@ Used by:     velox-terminal (via composition)
 
 ---
 
+## Event Bus (Cross-Cutting)
+
+The Event Bus is not a crate — it's a shared pattern using `tokio::sync::broadcast`:
+
+```
+EventBus {
+    sender: broadcast::Sender<AppEvent>,
+}
+
+Defined wherever it's first needed (currently velox-terminal, composition root).
+Used by: velox-exchange (publish feed events),
+          velox-oms (publish order events),
+          velox-ui (subscribe to all events),
+          velox-risk (publish risk alerts),
+          velox-broker (publish connection state),
+          logging/audit (subscribe).
+```
+
+| Event Class | Publisher | Consumer(s) | Channel Type |
+|-------------|-----------|-------------|-------------|
+| Tick/Quote | velox-exchange | velox-md, UI indicators | **Bypasses bus** — dedicated lock-free ring buffer |
+| CandleClosed | velox-md | velox-ui (chart), velox-indicators | Bus (via `AppEvent::CandleClosed`) |
+| OrderUpdate | velox-oms | velox-ui (positions panel), logging | Dedicated crossbeam + bus proxy |
+| ConnectionStatus | velox-exchange | velox-ui (status bar), SRE alerts | Bus |
+| RiskAlert | velox-risk | velox-ui (notification), audit log | Bus |
+
+---
+
 ## Port Layer (Traits)
 
 ### `velox-broker`

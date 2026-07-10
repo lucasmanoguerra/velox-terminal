@@ -1,0 +1,32 @@
+[package]
+name = "velox-terminal-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.velox-core]
+path = "../crates/velox-core"
+
+[dependencies.velox-oms]
+path = "../crates/velox-oms"
+
+[dependencies.velox-exchange]
+path = "../crates/velox-exchange"
+
+[[bin]]
+name = "order_state_machine"
+path = "targets/order_state_machine.rs"
+
+[[bin]]
+name = "market_data_parser"
+path = "targets/market_data_parser.rs"
+
+[[bin]]
+name = "broker_config"
+path = "targets/broker_config.rs"

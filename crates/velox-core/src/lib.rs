@@ -7,11 +7,13 @@
 //! No I/O, no complex logic — just types.
 
 pub mod error;
+pub mod event;
 pub mod market;
 pub mod order;
 pub mod types;
 
 pub use error::*;
+pub use event::*;
 pub use market::*;
 pub use order::*;
 pub use types::*;

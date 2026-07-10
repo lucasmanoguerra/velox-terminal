@@ -1,9 +1,5 @@
 //! Binance broker implementation of the [`BrokerClient`] trait.
 //!
-//! NOTE: File exceeds 200 lines (396 total) because it implements a full trait
-//! with 6 methods + formatting helpers + 8 unit tests. Each method is a single
-//! responsibility; splitting would harm cohesion.
-//!
 //! Bridges the order management system (OMS) with Binance's REST API,
 //! mapping domain types (`NewOrder`, `OrderId`) to Binance-specific
 //! request parameters and responses.
@@ -15,6 +11,11 @@
 //!
 //! - Our UUID is sent as `newClientOrderId` for idempotency
 //! - Binance's numeric `orderId` is stored alongside our UUID
+
+pub mod format;
+
+#[cfg(test)]
+mod tests;
 
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -86,7 +87,7 @@ impl BinanceBroker {
     }
 
     /// Get a cloned REST client for calling methods independently.
-    async fn get_client(&self) -> Result<BinanceRestClient, ExchangeError> {
+    pub async fn get_client(&self) -> Result<BinanceRestClient, ExchangeError> {
         let guard = self.rest_client.lock().await;
         guard
             .as_ref()
@@ -100,7 +101,10 @@ impl BinanceBroker {
         guard.clone()
     }
 
-    // ── Parameter mapping helpers ───────────────────────────────────
+    /// Whether the broker is currently connected and ready for order submission.
+    pub fn is_connected(&self) -> bool {
+        self.connected.load(Ordering::Acquire)
+    }
 
     /// Map a [`NewOrder`] to Binance order parameters and submit.
     ///
@@ -123,7 +127,7 @@ impl BinanceBroker {
             OrderType::StopMarket => "STOP_LOSS",
             OrderType::StopLimit => "STOP_LOSS_LIMIT",
         };
-        let quantity = format_quantity(order.quantity);
+        let quantity = format::format_quantity(order.quantity);
 
         let time_in_force = match order.time_in_force {
             TimeInForce::Gtc => Some("GTC"),
@@ -134,12 +138,12 @@ impl BinanceBroker {
         };
 
         let price = match order.order_type {
-            OrderType::Limit | OrderType::StopLimit => order.price.map(format_price),
+            OrderType::Limit | OrderType::StopLimit => order.price.map(format::format_price),
             _ => None,
         };
 
         let stop_price = match order.order_type {
-            OrderType::StopMarket | OrderType::StopLimit => order.stop_price.map(format_price),
+            OrderType::StopMarket | OrderType::StopLimit => order.stop_price.map(format::format_price),
             _ => None,
         };
 
@@ -202,8 +206,6 @@ impl BrokerClient for BinanceBroker {
             return Err(CoreError::Internal("Broker not connected".into()));
         }
 
-        // If caller provided a client_order_id, use it for idempotency;
-        // otherwise generate one.
         let client_order_id = order
             .client_order_id
             .clone()
@@ -251,7 +253,6 @@ impl BrokerClient for BinanceBroker {
 
     async fn get_positions(&self) -> Result<Vec<Position>, CoreError> {
         // For spot trading, positions are best computed from OMS fill history.
-        // Account balances are available via get_account_info.
         Ok(vec![])
     }
 
@@ -292,116 +293,5 @@ impl std::fmt::Debug for BinanceBroker {
         f.debug_struct("BinanceBroker")
             .field("connected", &self.connected.load(Ordering::Acquire))
             .finish()
-    }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-/// Format a quantity as a string with up to 8 decimal places.
-fn format_quantity(qty: f64) -> String {
-    if qty.fract() < 1e-8 {
-        format!("{:.0}", qty)
-    } else {
-        let s = format!("{:.8}", qty);
-        s.trim_end_matches('0')
-            .trim_end_matches('.')
-            .to_string()
-    }
-}
-
-/// Format a price as a string with up to 8 decimal places.
-fn format_price(price: f64) -> String {
-    format_quantity(price)
-}
-
-// ── Tests ────────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_format_quantity_integer() {
-        assert_eq!(format_quantity(1.0), "1");
-        assert_eq!(format_quantity(100.0), "100");
-        assert_eq!(format_quantity(0.0), "0");
-    }
-
-    #[test]
-    fn test_format_quantity_decimal() {
-        assert_eq!(format_quantity(0.01), "0.01");
-        assert_eq!(format_quantity(0.001), "0.001");
-        assert_eq!(format_quantity(1.5), "1.5");
-    }
-
-    #[test]
-    fn test_format_quantity_precision() {
-        let qty = format_quantity(0.00123456);
-        assert_eq!(qty, "0.00123456");
-    }
-
-    #[test]
-    fn test_format_price() {
-        assert_eq!(format_price(45000.0), "45000");
-        assert_eq!(format_price(45000.12), "45000.12");
-        assert_eq!(format_price(0.01), "0.01");
-    }
-
-    #[test]
-    fn test_debug_format() {
-        let broker = BinanceBroker::new();
-        let debug = format!("{broker:?}");
-        assert!(debug.contains("connected"));
-        assert!(debug.contains("false"));
-    }
-
-    #[test]
-    fn test_is_connected_initially_false() {
-        let broker = BinanceBroker::new();
-        assert!(!broker.connected.load(Ordering::Acquire));
-    }
-
-    #[tokio::test]
-    async fn test_submit_order_requires_connection() {
-        let broker = BinanceBroker::new();
-        let order = NewOrder {
-            symbol: "BTCUSDT".into(),
-            side: Side::Buy,
-            order_type: OrderType::Market,
-            quantity: 0.01,
-            price: None,
-            stop_price: None,
-            time_in_force: TimeInForce::Ioc,
-            client_order_id: None,
-            take_profit_price: None,
-            stop_loss_price: None,
-        };
-
-        let result = broker.submit_order(order).await;
-        assert!(result.is_err(), "Should fail without connection");
-    }
-
-    #[tokio::test]
-    async fn test_connect_and_connection_state() {
-        let broker = BinanceBroker::new();
-        let config = BrokerConfig {
-            api_key: "test_key".into(),
-            api_secret: "test_secret".into(),
-            base_url: "https://test.binance.com".into(),
-            paper_trading: true,
-        };
-
-        let handle = broker.connect(config).await.unwrap();
-        assert_eq!(handle.broker, "binance");
-        assert!(broker.connected.load(Ordering::Acquire));
-
-        broker.disconnect(&handle).await.unwrap();
-        assert!(!broker.connected.load(Ordering::Acquire));
-    }
-
-    #[test]
-    fn test_default() {
-        let broker = BinanceBroker::default();
-        assert!(!broker.connected.load(Ordering::Acquire));
     }
 }

@@ -9,7 +9,8 @@ pub type Symbol = [u8; 8];
 pub type TimestampNanos = i64;
 
 /// Price with 4 decimal places (stored as integer for exact representation).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
 pub struct Price4(pub i64);
 
 impl Price4 {

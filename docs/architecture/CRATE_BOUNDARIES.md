@@ -156,6 +156,40 @@ velox-exchange:
   - Note: Trait and adapter are co-located (pragmatic — only one impl exists)
 ```
 
+### Event Bus (Cross-Cutting Concern)
+
+The Event Bus is **not a crate** — it's a shared infrastructure pattern using `tokio::sync::broadcast`:
+
+```rust
+// In velox-terminal (composition root):
+pub type EventBus = broadcast::Sender<AppEvent>;
+
+pub enum AppEvent {
+    Tick { symbol: String, price: f64, volume: f64 },
+    CandleClosed { symbol: String, candle: Candle },
+    OrderUpdate { order_id: OrderId, state: OrderState },
+    Fill { order_id: OrderId, fill: Fill },
+    ConnectionStatus { exchange: String, status: ConnectionState },
+    AccountUpdate { balances: Vec<Balance> },
+    RiskAlert { severity: AlertSeverity, message: String },
+    UserCommand { command: UserCommand },
+    SystemShutdown,
+}
+```
+
+The bus is threaded through `Arc<EventBus>` to all adapters that publish or subscribe:
+
+| Adapter | Role | Events Published | Events Subscribed |
+|---------|------|-----------------|-------------------|
+| velox-exchange | Publisher | ConnectionStatus | SystemShutdown |
+| velox-md | Publisher | CandleClosed | — |
+| velox-oms | Publisher | OrderUpdate, Fill | UserCommand |
+| velox-risk | Publisher | RiskAlert | — |
+| velox-ui | Subscriber | — | OrderUpdate, ConnectionStatus, RiskAlert, AccountUpdate |
+| Logging | Subscriber | — | All (audit trail) |
+
+**Hot path bridge**: Critical low-latency events (ticks, fills) bypass the bus entirely through dedicated lock-free channels. Only summary/notification events reach the bus.
+
 ### Rule 4: Composition root depends on everything
 
 ```

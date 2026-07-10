@@ -17,8 +17,19 @@ Criterios que todo cambio debe cumplir antes de considerarse terminado.
 - [ ] Error paths are handled (no silent failures)
 - [ ] **Hexagonal compliance**: Domain crates don't import infrastructure (tokio, wgpu, egui, crossbeam)
 - [ ] **File size**: New files < 200 lines (excluding imports and module doc comments)
+- [ ] **SRP-File**: Each new file has a single responsibility (one concept, one `impl` target)
 - [ ] **Hexagonal exceptions**: Any hot-path exemption documented with `// HEXAGONAL-EXEMPT: <reason>`
+- [ ] **File exemptions**: Existing files > 200 lines not touched in this change; if refactored, atomized per `docs/quality/ATOMIZED_FILES.md`
+- [ ] **Zero-copy on hot path**: No `serde_json` deserialization on tick/quote paths. Use `bytemuck::Pod` or `rkyv`.
 - [ ] **Conventional Commit**: `git log --oneline -1` matches `<type>(<scope>): <description>` format
+- [ ] **Profiling-first**: Performance changes include before/after benchmark data in commit message
+
+## For Parser / Protocol Changes
+
+- [ ] Fuzz target exists for the parser (`crates/<name>/fuzz/`)
+- [ ] Fuzz target runs 30s+ without crash: `cargo +nightly fuzz run <target>`
+- [ ] Edge cases tested: empty input, malformed, partial frames, extreme lengths
+- [ ] Error handling verified: panics and unwraps eliminated from parser code
 
 ## For OMS / Risk / P&L Changes
 
@@ -44,6 +55,8 @@ Criterios que todo cambio debe cumplir antes de considerarse terminado.
 - [ ] Credential handling reviewed (no plaintext secrets in logs/config)
 - [ ] Connection timeout and recovery scenarios tested
 - [ ] Backoff strategy verified (not hammering broker on reconnect)
+- [ ] **Backpressure**: Connector uses bounded channel or ring buffer. Drop policy documented.
+- [ ] **Fuzzing**: If parser changed, fuzz target updated and passes 30s+ CI run.
 
 ## For Documentation Changes
 

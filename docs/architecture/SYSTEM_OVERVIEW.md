@@ -143,6 +143,80 @@ Data flows through channels (crossbeam SPSC ring buffers, tokio mpsc). Each stag
 
 ---
 
+## Event Bus Architecture
+
+Central pub/sub system for cross-module communication without coupling.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        EVENT BUS                                  │
+│  tokio::sync::broadcast::Sender<AppEvent>                        │
+│                                                                   │
+│  AppEvent enum:                                                   │
+│    ├── Market(Tick | Quote | Candle | Depth)                     │
+│    ├── Order(Submitted | Filled | Cancelled | Rejected)          │
+│    ├── Account(BalanceChanged | PositionChanged)                  │
+│    ├── Connection(Connected | Disconnected | Reconnecting)       │
+│    ├── Risk(LimitBreached | CircuitTripped)                      │
+│    ├── User(Command | Alert)                                     │
+│    └── System(Shutdown | ConfigChanged)                          │
+└──────────────────────┬──────────────────────────────────────────┘
+         │                          ▲
+         │ publish                  │ subscribe
+    ┌────▼────┐              ┌──────┴──────┐
+    │ Module  │              │  Module      │
+    │ A       │────•────────►│  B (filter)  │
+    └─────────┘   │          └─────────────┘
+                  │    ┌──────────────┐
+                  └───►│  Module C    │
+                       └──────────────┘
+```
+
+**Implementation**: `tokio::sync::broadcast` with capacity 256. Hot-path events (ticks, fills) bypass the bus and go through dedicated channels to avoid broadcast overhead. The bus handles higher-level events: connection state, risk alerts, user commands, account updates.
+
+**Hot path bridge**: Critical low-latency events (ticks, order fills) use dedicated lock-free channels (RingBuffer, crossbeam) and **optionally** publish a lightweight notification to the Event Bus for non-critical consumers (logging, UI indicators, alert system).
+
+## Allocator Strategy
+
+| Layer | Allocator | Rationale |
+|-------|-----------|-----------|
+| **Domain Core** (`velox-core`, `velox-oms`, `velox-risk`, `velox-indicators`) | System allocator | Minimal allocation; mostly stack data. Predictable, no behavioral changes. |
+| **Adapters** (`velox-exchange`, `velox-chart`, `velox-ui`) | `mimalloc` | Heavy allocation from JSON parsing, GPU buffers, WebSocket messages. mimalloc reduces fragmentation and improves throughput under load. |
+| **Hot path** (RingBuffer, aggregator) | Pre-allocated buffers | Zero allocation in steady state. Pre-allocated ring buffer slots, batched Vec reuse (`pop_n` with Vec drain). |
+
+```toml
+# Cargo.toml (workspace) — mimalloc for adapter crates
+[dependencies]
+mimalloc = { version = "0.1", optional = true }
+
+[features]
+default = ["adapter-allocator"]
+adapter-allocator = ["velox-exchange/mimalloc", "velox-chart/mimalloc", "velox-ui/mimalloc"]
+```
+
+## Zero-Copy Strategy
+
+| Path | Technique | Crate |
+|------|-----------|-------|
+| Network bytes → Tick/Quote | `#[repr(C)]` struct + `bytemuck::Pod` | `bytemuck` |
+| IPC between threads | Zero-copy cast of `Pod` bytes | `bytemuck`, crossbeam |
+| Persistence load | `rkyv` zero-copy deserialization | `rkyv` |
+| GPU buffer upload | `bytemuck::cast_slice` from SoA arrays | `bytemuck` |
+| String handling | `bytes::Bytes` for zero-copy borrow from network buffers | `bytes` |
+
+**Rule**: No `serde_json` deserialization on hot path. Zero-copy parsing first; fall back to `serde_json` only for low-frequency endpoints (exchangeInfo, account details).
+
+## Plugin System (Future)
+
+Two-tier extensibility:
+
+1. **Internal plugins** (Lua scripting): Sandboxed user strategies via `mlua`. Evaluated per-tick or per-candle. `velox-scripting` crate.
+2. **Dynamic plugins** (cdylib): For advanced users/enterprise. Shared libraries loaded at runtime via `libloading`. Each plugin implements a C-ABI `Plugin` trait. Host and plugin must share Rust compiler version (ABI instability). WASM (via `wasmtime`) considered as safer alternative for untrusted plugins.
+
+Design principle: The core doesn't know about plugins. Plugins observe events via the Event Bus and interact through well-defined port traits.
+
+---
+
 ## UNIX Pipeline Analogy
 
 ```
@@ -210,10 +284,14 @@ Each stage:
 |---|----------|-----------|
 | 1 | Domain crates depend only on `velox-core` | Zero I/O debt — testable at native speed |
 | 2 | Ring buffers for hot path (ticks) | Lock-free SPSC, 1μs p50 latency |
-| 3 | mpsc channels for cross-thread candles | Tokio unbounded channel — tradeoff: safe, simple, bounded by frame rate |
-| 4 | `unsafe` for egui-wgpu `RenderPass<'static>` | egui-wgpu API requires it; proven safe pattern; never stores the ref |
-| 5 | Ports co-located with adapters (ExchangeFeed in velox-exchange) | Pragmatic: only one implementation exists; extract if second appears |
-| 6 | `velox-terminal` imports all crates | Composition root: intentionally depends on everything to wire it |
+| 3 | `pop_n` batching for ring buffer consumption | 2 atomics per batch (vs 3 per tick). Reuses Vec allocation. |
+| 4 | mpsc channels for cross-thread candles | Tokio unbounded channel — tradeoff: safe, simple, bounded by frame rate |
+| 5 | `unsafe` for egui-wgpu `RenderPass<'static>` | egui-wgpu API requires it; proven safe pattern; never stores the ref |
+| 6 | Ports co-located with adapters (ExchangeFeed in velox-exchange) | Pragmatic: only one implementation exists; extract if second appears |
+| 7 | Event Bus via `tokio::sync::broadcast` | Decoupled pub/sub for non-critical events. Hot path bypasses bus via dedicated channels. |
+| 8 | mimalloc for adapters, system allocator for domain core | Adapters allocate heavily (JSON, GPU buffers); domain core is mostly stack. |
+| 9 | Zero-copy via bytemuck/rkyv on hot path | No serde deserialization on tick/quote paths. `#[repr(C)]` structs for safe casting. |
+| 10 | `velox-terminal` imports all crates | Composition root: intentionally depends on everything to wire it |
 
 ---
 

@@ -17,7 +17,7 @@ Start here, then open the section README for the area you need.
 | Connectivity | `docs/connectivity/README.md` | Brokers, FIX, WebSocket, REST, reconexión resiliente |
 | GPU | `docs/gpu/README.md` | Renderizado wgpu, charting engine, shaders WGSL, texto glyphon |
 | UI | `docs/ui/README.md` | Paneles dockables, DOM ladder, order entry, hotkeys |
-| Quality | `docs/quality/README.md` | Estándares de código, Definition of Done, checklists |
+| Quality | `docs/quality/README.md` | Estándares de código, Definition of Done, checklists, atomización de archivos |
 | Governance | `docs/governance/README.md` | Reglas del proyecto, proceso de decisiones, releases |
 | Observability | `docs/observability/README.md` | Logging, métricas, crash reporting, alertas |
 | Security | `docs/security/README.md` | Credenciales, threat model, auditoría |

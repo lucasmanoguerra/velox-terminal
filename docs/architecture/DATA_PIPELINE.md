@@ -14,25 +14,28 @@ Each stage is:
 ```
 External World               Adapters                  Domain                   Adapters
 ═══════════════         ╔══════════════╗         ╔══════════════╗         ╔══════════════╗
-                     ╔══╝              ╚══╗   ╔══╝              ╚══╗   ╔══╝              ╚══╗
+                      ╔══╝              ╚══╗   ╔══╝              ╚══╗   ╔══╝              ╚══╗
 Binance WebSocket ──►║ BinanceFeed      ║──►║ RingBuffer       ║──►║ CandleAggregator ║──►║ AppState
 (JSON trade msgs)    ║ (adapter)        ║   ║ (SPSC pipe)      ║   ║ (pure domain)    ║   ║ (adapter)
-                     ╚══╗              ╔══╝   ╚══╗              ╔══╝   ╚══╗              ╔══╝
-                        ╚══════════════╝         ╚══════════════╝         ╚══════════════╝
-                              │                                              │
-                         Layer: Adapter                                  Layer: Domain
-                         I/O: tokio WebSocket                            I/O: none
-                         Transforms: JSON → Tick                         Transforms: Tick → Candle
-
-                                    │                                            │
-                                    ▼                                            ▼
-                              ╔══════════════╗                           ╔══════════════╗
-                              ║ mpsc channel  ║────(cross-thread)──────►║ ChartRenderer║──► Screen
-                              ║ (tokio pipe)  ║                         ║ (wgpu)       ║
-                              ╚══════════════╝                         ╚══════════════╝
-                                                                        Layer: Adapter
-                                                                        I/O: GPU (wgpu)
-                                                                        Transforms: Candle → triangles
+                      ╚══╗              ╔══╝   ╚══╗              ╔══╝   ╚══╗              ╔══╝
+                         ╚══════════════╝         ╚══════════════╝         ╚══════════════╝
+                               │                  │                              │
+                          Layer: Adapter     Zero-copy bytemuck             Layer: Domain
+                          I/O: tokio         via #[repr(C)] Tick            I/O: none
+                          Transforms: JSON   Pop_n batch consumption        Transforms: Tick → Candle
+                          → Tick
+                               │                  │                              │
+                               ▼                  ▼                              ▼
+                         ╔══════════════╗  ┌──────────────┐            ╔══════════════╗
+                         ║ mpsc channel  ║──┤  Event Bus   │            ║ ChartRenderer║──► Screen
+                         ║ (tokio pipe)  ║  │ (broadcast)  │            ║ (wgpu)       ║
+                         ╚══════════════╝  └──────────────┘            ╚══════════════╝
+                              │                           │               Layer: Adapter
+                              ▼                           ▼               I/O: GPU (wgpu)
+                         ┌──────────┐               ┌──────────┐         Transforms: Candle → triangles
+                         │  Logging │               │  Alerts  │         bytemuck cast_slice
+                         │  (sub)   │               │  (sub)   │         → GPU vertex buffers
+                         └──────────┘               └──────────┘
 ```
 
 ---
@@ -78,8 +81,13 @@ EXTERNAL WORLD                    LAYER: INFRASTRUCTURE
 ║                                                                       ║
 ║  MarketDataPipeline::poll()  ← called every frame from main thread   ║
 ║    │                                                                  ║
+║    │  // Batch consumption: 2 atomics per pop_n call                  ║
+║    │  let mut batch = Vec::with_capacity(128);                       ║
 ║    │  loop {                                                         ║
-║    │      ring.pop() → Some(MarketEvent::Tick(tick))                 ║
+║    │      batch.clear();                                             ║
+║    │      let n = ring.pop_n(&mut batch, 128);                       ║
+║    │      if n == 0 { break; }                                       ║
+║    │      for event in batch.drain(..) {                             ║
 ║    │                       │                                          ║
 ║    │                       ▼                                          ║
 ║    │              CandleAggregator::process_tick(&tick)               ║
@@ -91,6 +99,11 @@ EXTERNAL WORLD                    LAYER: INFRASTRUCTURE
 ║    │                    │                                             ║
 ║    │                    └── candle_tx.send(candle) ──────────►        ║
 ║    │                             (mpsc::UnboundedSender)              ║
+║    │  }                                                               ║
+║    │                                                                  ║
+║    │  // Optionally publish to Event Bus for non-critical consumers   ║
+║    │  if !batch.is_empty() {                                         ║
+║    │      event_bus.send(AppEvent::CandleClosed { ... });            ║
 ║    │  }                                                               ║
 ║                                                                       ║
 ╚══════════════════════════════════════════════════════════════════════╝
@@ -290,26 +303,50 @@ User selects active timeframe → AppState::set_timeframe(tf) swaps the view.
 
 ## Latency Budget
 
-| Stage | p50 | p99 | Where measured |
-|-------|-----|-----|---------------|
-| WebSocket → Tick | 50μs | 200μs | tracing span |
-| RingBuffer push | 50ns | 200ns | criterion |
-| RingBuffer pop | 50ns | 200ns | criterion |
-| Tick → Candle update | 1μs | 5μs | criterion |
-| Candle → AppState | 5μs | 20μs | tracing span |
-| Chart GPU upload | 100μs | 500μs | Tracy frame profiler |
-| wgpu render + present | 1ms | 5ms | Tracy frame profiler |
-| **End-to-end (tick → screen)** | **~1.5ms** | **~6ms** | Tracy |
+| Stage | p50 | p99 | Where measured | Zero-copy? |
+|-------|-----|-----|---------------|------------|
+| WebSocket → Tick (zero-copy via bytemuck) | 40μs | 150μs | tracing span | ✅ bytemuck Pod cast |
+| RingBuffer push | 50ns | 200ns | criterion | ✅ &[u8] slices |
+| RingBuffer pop_n batch (128 events) | 300ns | 1μs | criterion | ✅ amortized atomic |
+| Tick → Candle update | 1μs | 5μs | criterion | No allocs |
+| Candle → AppState | 5μs | 20μs | tracing span | ❌ serde not used |
+| Chart GPU upload (bytemuck cast_slice) | 80μs | 300μs | Tracy | ✅ cast_slice |
+| wgpu render + present | 1ms | 5ms | Tracy | — |
+| **End-to-end (tick → screen)** | **~1.5ms** | **~6ms** | Tracy | — |
+
+> **Note**: Zero-copy columns track whether the stage uses `bytemuck::Pod` casts, `rkyv` zero-copy deser, or `bytes::Bytes` zero-copy borrow. Any stage without ✅ is a candidate for optimization.
 
 ---
 
 ## Backpressure Strategy
 
-| Stage | Mechanism | Policy |
-|-------|-----------|--------|
-| BinanceFeed → RingBuffer | Ring buffer full → `push` returns error | Mark gap, drop latest |
-| Pipeline → mpsc channel | `UnboundedSender::send` never blocks | **Risk**: unbounded growth if main thread lags. Mitigation: channel drained every frame (~16ms). |
-| UI → OMS (future) | Bounded channel with timeout | User waits for confirmation before next action |
+| Stage | Mechanism | Capacity | Policy |
+|-------|-----------|----------|--------|
+| BinanceFeed → RingBuffer | Lock-free SPSC ring | 4096 slots | Drop latest (mark gap). Consumer uses `pop_n` batch. |
+| Pipeline → mpsc channel | `tokio::mpsc::UnboundedSender` | Unbounded | **Risk**: Mitigated by draining every frame (~16ms). Tracing warns if buffer > 1000. |
+| Event Bus | `tokio::sync::broadcast` | 256 slots | Drop oldest for slow subscribers. Subscriber gets `RecvError::Lagged(n)`. |
+| UI → OMS (user commands) | `crossbeam::bounded` | 64 slots | Block sender (user waits). Timeout after 5s. |
+| OMS → Broker (async) | `tokio::oneshot` per request | 1 per order | Timeout per order. |
+
+### Backpressure Rules
+
+1. **Batch consumption**: `RingBuffer::pop_n(&mut batch, max)` reduces atomic overhead from 3 per tick to 3 per batch.
+2. **Vec reuse**: The batch Vec is allocated once and reused across frames (`.clear()` + `.drain(..)`). Zero allocation in steady state.
+3. **Drop policy must be explicit**: Every channel documents behavior when full.
+4. **Monitor and alert**: Log `WARN` when consumer falls behind. Log `ERROR` on data loss.
+5. **Backpressure propagates naturally**: If RingBuffer is full, the WebSocket frame is dropped (not queued). The producer never blocks.
+
+```rust
+// Batch consumption pattern (reused Vec):
+let mut batch = Vec::with_capacity(128);
+loop {
+    batch.clear();
+    if self.ring.pop_n(&mut batch, 128) == 0 { break; }
+    for event in batch.drain(..) {
+        self.aggregator.process_tick(&event);
+    }
+}
+```
 
 ---
 

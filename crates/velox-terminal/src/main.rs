@@ -15,6 +15,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(deprecated)]
 
+// Use mimalloc as the global allocator when the `mimalloc` feature is enabled.
+// This reduces memory fragmentation and improves performance in production builds.
+// Enable with: cargo run --features mimalloc
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL_ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod app;
 mod input;
 

@@ -38,6 +38,15 @@ tracing-subscriber.workspace = true
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
 
+# Allocator (optional, for production builds)
+mimalloc = { workspace = true, optional = true }
+
+[features]
+default = []
+# Use mimalloc global allocator for reduced fragmentation and better performance.
+# Recommended for production builds: --features mimalloc
+mimalloc = ["dep:mimalloc"]
+
 [[bin]]
 name = "velox-terminal"
 path = "src/main.rs"

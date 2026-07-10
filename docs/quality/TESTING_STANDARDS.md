@@ -64,11 +64,62 @@ proptest! {
 - Mock all external dependencies (broker, feeds)
 - Test: end-to-end order flow, full candle pipeline, backtest vs known results
 
-## Benchmark Tests (criterion)
+## Benchmark Tests (criterion) — Mandatory
 
-- Benchmark all hot paths: tick parsing, OHLCV aggregation, indicator streaming
-- Benchmark GPU operations: draw call overhead, buffer updates
-- Track regressions in CI (compare against stored baseline)
+**Every hot path must have a criterion benchmark.** Changes that regress hot path performance are rejected unless the tradeoff is explicitly documented.
+
+### Mandatory Benchmarks
+
+| Benchmark | Crate | Threshold | CI Check |
+|-----------|-------|-----------|----------|
+| Tick parsing | `velox-exchange` | < 100ns p50 | `cargo bench --bench tick_parse` |
+| RingBuffer push | `velox-md` | < 50ns p50 | `cargo bench --bench ring_buffer` |
+| RingBuffer pop_n | `velox-md` | < 200ns per batch of 128 | `cargo bench --bench ring_buffer` |
+| Candle aggregation | `velox-md` | < 1μs per tick per TF | `cargo bench --bench aggregation` |
+| OMS state transition | `velox-oms` | < 500ns per transition | `cargo bench --bench oms` |
+| Indicator update (SMA) | `velox-indicators` | < 50ns per tick | `cargo bench --bench indicators` |
+| GPU buffer upload | `velox-chart` | < 100μs per frame | `cargo bench --bench chart` |
+
+### Criterion Baseline
+
+```bash
+# Record baseline (run once per major version)
+cargo bench -- --save-baseline v0.3.0
+
+# Compare against baseline in CI
+cargo bench -- --baseline v0.3.0
+```
+
+CI fails if any benchmark regresses > 10% from baseline (configurable per benchmark).
+
+## Fuzzing (cargo-fuzz) — Mandatory for Parsers
+
+All protocol parsers, deserializers, and user input handlers must be fuzzed.
+
+### Fuzz Targets
+
+| Fuzz Target | Crate | Input Source | CI Duration |
+|-------------|-------|-------------|-------------|
+| `trade_parser` | `velox-exchange` | Binance trade JSON | 30s per PR |
+| `depth_parser` | `velox-exchange` | Binance depth JSON | 30s per PR |
+| `fix_parser` | `velox-broker-fix` | FIX tag-value | 60s per PR |
+| `config_parser` | `velox-terminal` | TOML config | 15s per PR |
+| `user_command` | `velox-ui` | User command strings | 15s per PR |
+
+### Rules
+
+1. Every parser has a fuzz target in `crates/<name>/fuzz/`.
+2. CI runs each target for minimum 30 seconds per PR.
+3. A crash in CI blocks the PR — must be fixed before merge.
+4. Add new fuzz targets when adding new protocol handlers.
+
+```bash
+# Run fuzzer locally
+cargo +nightly fuzz run trade_parser -- -max_len=4096
+
+# Run all targets
+cargo +nightly fuzz list | xargs -I{} cargo +nightly fuzz run {} -- -max_len=4096
+```
 
 ## Coverage Requirements
 

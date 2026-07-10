@@ -11,6 +11,7 @@ Estándares de calidad, Definition of Done, checklists.
 | `REVIEW_CHECKLIST.md` | Checklist de revisión de PRs multi-gate | Reviewing code changes |
 | `RELEASE_CHECKLIST.md` | Pasos pre-release | Before creating a release |
 | `TESTING_STANDARDS.md` | Estándares de testing: cobertura, proptest, benchmark | Writing tests |
+| `ATOMIZED_FILES.md` | Estándar de atomización de archivos < 200 líneas + deuda técnica | Refactoring, reviewing large files |
 
 ## Recommended Loading Order
 

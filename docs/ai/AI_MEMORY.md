@@ -4,6 +4,156 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-09 — Code implementation from deep-research-report (Event Bus, atomization, zero-copy, mimalloc, fuzzing)
+
+**Decision**: Implementar en código los patrones arquitectónicos documentados
+del deep-research-report que antes solo existían en documentación: Event Bus
+types (`AppEvent` enum), atomización de archivos grandes, zero-copy con
+bytemuck, allocator strategy con mimalloc, e infraestructura de fuzzing.
+
+**Problema resuelto**: 5 patrones críticos estaban documentados pero sin
+implementación en código. 13 archivos excedían 200 líneas sin plan de
+atomización. No existía infraestructura de fuzzing ni allocator configurable.
+
+**Cambios**:
+
+### Event Bus (`velox-core/src/event.rs`)
+- Nuevo módulo `AppEvent` enum con 7 variantes tipadas:
+  `CandleClosed`, `OrderUpdate`, `FillNotification`, `ConnectionStatus`,
+  `AccountUpdate`, `RiskAlert`, `UserCommand`, `System`
+- `ConnectionState` enum, `AlertSeverity` enum, `UserCommand` enum
+- Comentario explícito de Hot Path Bridge documentando que Tick/Fill bypass
+  el bus por canales lock-free (RingBuffer)
+
+### Zero-Copy bytemuck
+- `Price4` struct: +`bytemuck::Pod` + `bytemuck::Zeroable` + `#[repr(C)]`
+- `OrderBookLevel` struct: +`bytemuck::Pod` + `bytemuck::Zeroable` + `#[repr(C)]`
+- Ambos son puros i64/f64 → trivialmente Pod, permiten zero-copy IPC/shared memory
+
+### Atomización de archivos
+- `binance_broker.rs` (407 → 3 archivos): Separado en
+  `binance_broker/mod.rs` (250 prod líneas, core + BrokerClient trait),
+  `binance_broker/format.rs` (60 líneas, helpers format_quantity/format_price),
+  `binance_broker/tests.rs` (60 líneas, 5 tests de integración)
+- `interaction.rs` (386 → 3 archivos): Separado en
+  `interaction/mod.rs` (265 prod líneas, ChartView + ChartInteraction),
+  `interaction/tests.rs` (155 líneas, 9 tests incluyendo 2 nuevos)
+- `BinanceBroker::is_connected()`: nuevo método pub para acceso externo sin
+  romper encapsulamiento
+
+### mimalloc Allocator
+- `workspace Cargo.toml`: +`mimalloc = "0.1"`
+- `velox-terminal/Cargo.toml`: +`[features] mimalloc = ["dep:mimalloc"]`
+- `velox-terminal/src/main.rs`: +`#[global_allocator] static GLOBAL_ALLOC`
+  gateado con `#[cfg(feature = "mimalloc")]`
+- Uso: `cargo run --features mimalloc`
+
+### Infraestructura de Fuzzing
+- `fuzz/Cargo.toml`: 3 targets (order_state_machine, market_data_parser,
+  broker_config)
+- `fuzz/targets/order_state_machine.rs`: Fuzz OMS invariantes (overfill check,
+  avg_fill_price consistency)
+- `fuzz/targets/market_data_parser.rs`: Fuzz Binance trade JSON parsing
+  (panic-free guarantee)
+- `fuzz/targets/broker_config.rs`: Fuzz config deserialización (credential
+  length limits, UTF-8 edge cases)
+- `fuzz/.gitignore`: +targets/corpus/artifacts/coverage/
+- No agregado a `workspace.members` — requiere `cargo fuzz` standalone
+
+**Files changed**: 15 archivos, +698-262 líneas.
+- `crates/velox-core/src/event.rs` (nuevo, 97 líneas)
+- `crates/velox-core/src/lib.rs` (+pub mod event)
+- `crates/velox-core/src/types.rs` (+bytemuck derives en Price4)
+- `crates/velox-core/src/market.rs` (+bytemuck derives en OrderBookLevel)
+- `crates/velox-exchange/src/binance_broker/` (3 archivos, split from 1)
+- `crates/velox-chart/src/interaction/` (3 archivos, split from 1)
+- `Cargo.toml` (workspace: +mimalloc)
+- `crates/velox-terminal/Cargo.toml` (+mimalloc feature)
+- `crates/velox-terminal/src/main.rs` (+global_allocator)
+- `fuzz/Cargo.toml` (nuevo)
+- `fuzz/.gitignore` (nuevo)
+- `fuzz/targets/*` (3 nuevos)
+
+**Tests**: 123 pasando (antes 131 → ajuste por split de tests, +2 nuevos interaction),
+0 warnings clippy.
+
+---
+
+## 2026-07-09 — Documentation upgrade from deep-research-report
+
+**Decision**: Actualizar 8 documentos de arquitectura y calidad basado en el
+reporte analítico (`docs/deep-research-report.md`). Se añadieron 7 secciones
+nuevas y se mejoraron 5 existentes con recomendaciones del reporte.
+
+**Problema resuelto**: La documentación existente no cubría patrones críticos
+identificados en el research: Event Bus, backpressure explícita, zero-copy,
+allocator strategy, fuzzing, profiling-first methodology, y plugin system.
+
+**Cambios por documento**:
+
+- **SYSTEM_OVERVIEW.md**: +Event Bus Architecture (pub/sub, hot path bridge,
+  AppEvent enum), +Allocator Strategy (mimalloc para adapters, system para
+  domain core), +Zero-Copy Strategy (bytemuck/rkyv/bytes), +Plugin System
+  (Lua scripting + cdylib future), nuevas ADRs (#7-10).
+- **CONCURRENCY_MODEL.md**: +Event Bus section (arquitectura, hot path bridge,
+  AppEvent enum, tabla de canales), +Backpressure Strategy expandida (capacidades
+  por canal, reglas, pop_n batch), +Allocator Strategy tabla, +Profiling Rules
+  (4 reglas obligatorias), reglas 4-7 nuevas.
+- **DATA_PIPELINE.md**: Pipeline diagram actualizado (zero-copy bytemuck, Event Bus,
+  pop_n batch), sección de Market Data Pipeline con batch consumption, Backpressure
+  Strategy expandida (5 canales con capacidad/política, 5 reglas, código ejemplo),
+  Latency Budget con columna zero-copy.
+- **CODING_STANDARDS.md**: +Allocator Strategy (tabla + feature flag + 3 reglas),
+  +Zero-Copy Guidelines (patrones aprobados, tabla por path, cuándo es opcional),
+  +Profiling-First Rule (workflow flamegraph/criterion/dhat, mandatory benchmarks),
+  +Fuzzing Requirements (targets, código ejemplo, reglas).
+- **TESTING_STANDARDS.md**: +Benchmark Tests mandatory (tabla 7 benchmarks con
+  thresholds, CI baseline comparison), +Fuzzing section (5 fuzz targets, 4 reglas,
+  CI 30s mínimo).
+- **DEFINITION_OF_DONE.md**: +Zero-copy check, +Profiling-first check, +Parser
+  changes section (fuzz target, 30s run, edge cases, panic-free), +Broker
+  connectivity backpressure + fuzzing checks.
+- **REVIEW_CHECKLIST.md**: Gate 1 +backpressure, Gate 3 +zero-copy/+profiling/
+  +batching, Gate 4 +allocator, Gate 5 +fuzzing/+benchmarks, Gate 6 +backpressure
+  policy.
+- **DEPENDENCY_MAP.md**: +Event Bus section (no crate, shared pattern via
+  broadcast, tabla publishers/consumers/channel types).
+- **CRATE_BOUNDARIES.md**: +Event Bus section (definición código, tabla
+  adaptadores rol, hot path bridge).
+
+**Archivos**: 10 modificados, ~400 líneas añadidas.
+
+---
+
+## 2026-07-09 — Atomized files standard + debt inventory
+
+**Decision**: Crear estándar de atomización de archivos basado en el
+deep-research-report. Cada archivo `.rs` debe tener < 200 líneas efectivas
+de producción y una única responsabilidad (SRP-File).
+
+**Problema resuelto**: 13 archivos exceden el límite de 200 líneas, el mayor
+con 892 líneas (`binance_rest.rs`). Sin una guía clara y un inventario de
+deuda, la atomización se posterga indefinidamente.
+
+**Cambios**:
+- **ATOMIZED_FILES.md** (nuevo): Filosofía SRP-File, regla de 200 líneas,
+  inventario de deuda con 13 archivos categorizados por prioridad (4 alta,
+  5 media, 3 baja), estrategia de refactorización en 3 pasos, patrón de
+  división directorio/archivos, tabla de divisiones propuestas para los
+  6 archivos más grandes, meta-regla de cuándo no atomizar, script de
+  verificación CI.
+- **CODING_STANDARDS.md**: Sección File Size Rule reforzada con enlace a
+  ATOMIZED_FILES.md. Nueva sección SRP-File con señales de violación y
+  ejemplos. Excepciones documentadas con `// FILE-EXEMPT`.
+- **DEFINITION_OF_DONE.md**: +SRP-File check, +File exemptions check.
+- **REVIEW_CHECKLIST.md**: Gate 4 +Atomization check.
+
+**Deuda registrada**: 13 archivos > 200 líneas. 4 prioridad alta (> 500 líneas):
+binance_rest.rs (892), renderer.rs (748), paper_trader.rs (734),
+binance_user_data.rs (765).
+
+---
+
 ## 2026-07-09 — Agent system upgrade from deep-research-report
 
 **Decision**: Actualizar todos los agentes de OpenCode basado en el reporte

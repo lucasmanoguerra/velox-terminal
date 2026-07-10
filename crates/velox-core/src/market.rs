@@ -67,7 +67,8 @@ pub enum TradingStatus {
 }
 
 /// A single level in the order book (price + quantity).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C)]
 pub struct OrderBookLevel {
     pub price: f64,
     pub size: f64,
