@@ -35,6 +35,7 @@ Próximas acciones priorizadas. Basado en el roadmap completo en `ROADMAP.md`.
 - [x] Binance REST Client y User Data Stream
 - [x] BinanceBroker (BrokerClient impl.)
 - [x] Live/Paper trading toggle + API keyring storage
+- [x] Sandbox/Testnet Binance support
 
 ### UI/GPU
 - [x] ChartRenderer wgpu: grid, candle, volume, line pipelines
@@ -60,7 +61,7 @@ Próximas acciones priorizadas. Basado en el roadmap completo en `ROADMAP.md`.
 | 2 | **Binance User Data Stream** (`@account`, `@balance`) | Conectividad | — | M |
 | 3 | **OMS → Broker real** — enviar órdenes a Binance via REST | Trading | #1, #2 | L |
 | 4 | ~~**API Keys seguras** — keyring nativo del SO (keyring-rs)~~ | ✅ | — | S |
-| 5 | **Sandbox/Testnet Binance** — entorno de pruebas | Conectividad | — | S |
+| 5 | ~~**Sandbox/Testnet Binance** — entorno de pruebas~~ | ✅ | — | S |
 
 ### P2 — Próximo (~2-4 semanas)
 

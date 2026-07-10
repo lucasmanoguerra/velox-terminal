@@ -4,6 +4,42 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-09 — Sandbox/Testnet Binance support (public API)
+
+**Decision**: Agregar soporte para Binance Testnet (testnet.binance.vision) en
+la UI, el feed de market data y la configuración del broker. El usuario puede
+seleccionar "Use Testnet" en el panel de conexión, lo que cambia los endpoints
+REST y WebSocket a testnet.
+
+**Problema resuelto**: No se podía probar la terminal con dinero ficticio sin
+arriesgar fondos reales. La conexión siempre iba a producción (api.binance.com).
+
+**Arquitectura**:
+- `BinanceFeed`: +`new_with_testnet(bool)` constructor, +`use_testnet` flag en
+  `BinanceFeedInner`, +`BINANCE_TESTNET_WS_URL` constante. `run_loop` selecciona
+  WS URL según el flag.
+- `BinanceUserDataStream`: +`use_testnet` en `UserDataStreamInner`,
+  +`BINANCE_TESTNET_WS_URL`, usado en `run_loop`.
+- `BinanceRestClient`: ya soportaba testnet vía `use_testnet` en constructor
+  (desde implementación inicial).
+- `AppState`: +`connect_use_testnet: bool`. Se restaura desde keyring
+  vía `config.paper_trading`.
+- `panels.rs`: label "Testnet? Use testnet.binance.vision" → checkbox "Use Testnet".
+- `app.rs`: feed creado con `new_with_testnet(state.connect_use_testnet)`,
+  `BrokerConfig.paper_trading` seteado desde el flag. Default base_url
+  auto-selecciona entre api.binance.com y testnet.binance.vision.
+
+**Files changed**: 5 files, +55−12 líneas.
+- `crates/velox-exchange/src/binance.rs` (new_with_testnet, testnet WS URL)
+- `crates/velox-exchange/src/binance_user_data.rs` (testnet WS URL + flag)
+- `crates/velox-ui/src/app_state.rs` (+connect_use_testnet)
+- `crates/velox-ui/src/panels.rs` (label→checkbox)
+- `crates/velox-terminal/src/app.rs` (wire testnet flag)
+
+**Tests**: 129 pasando, 0 clippy warnings.
+
+---
+
 ## 2026-07-09 — Bracket orders (TP/SL) with auto-create/cancel lifecycle
 
 **Decision**: Implementar bracket orders (take-profit + stop-loss) en PaperTrader.
