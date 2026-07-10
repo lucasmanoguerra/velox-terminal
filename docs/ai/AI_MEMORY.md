@@ -4,6 +4,41 @@ Persistent knowledge store for cross-session continuity.
 
 ---
 
+## 2026-07-09 — Agent system upgrade from deep-research-report
+
+**Decision**: Actualizar todos los agentes de OpenCode basado en el reporte
+analítico de arquitectura y rendimiento (`docs/deep-research-report.md`).
+Se añadieron 5 reglas nuevas al orquestador, un agente nuevo (event-bus),
+y se mejoraron las responsabilidades de 6 agentes existentes.
+
+**Problema resuelto**: Los agentes no cubrían patrones críticos identificados
+en el research: backpressure, event bus, zero-copy, fuzzing, allocator strategy,
+y profiling obligatorio antes de optimizar.
+
+**Cambios**:
+- **lead.md**: Stack actualizado (+mimalloc, bytes/zerocopy, cargo-fuzz, perf).
+  5 reglas nuevas: Backpressure, Zero-copy, Profiling primero, Event Bus, Fuzzing.
+  Nuevas secciones de routing para eventos y performance.
+- **systems-architect.md**: +Event Bus architecture (tokio::sync::broadcast,
+  AppEvent enum, hot path bridge), +Backpressure strategy (canales acotados,
+  política de drop, batching), +Allocator Strategy (mimalloc para adapters,
+  system para domain core), +Zero-copy guidance.
+- **event-bus.md** (NUEVO): Agente especializado en sistema pub/sub central.
+  Define AppEvent enum, EventBus struct, bridge entre hot path y bus.
+- **performance.md**: +Allocator optimization (mimalloc, dhat). +Zero-copy
+  profiling. +Backpressure verification. Criterion ahora es obligatorio.
+- **qa-financiero.md**: +Fuzzing con cargo-fuzz (obligatorio en parsers).
+  +Criterion benchmarks para hot paths. Scope expandido de proptest.
+- **market-data-feed.md**: +Zero-copy bytes/zerocopy. +Batching pop_n.
+  Backpressure mejorado con política de drop explícita.
+- **broker-integration.md**: +Backpressure en conectores. Patrón event-driven
+  (publicar a event bus). +Fuzzing de parsers.
+- **opencode.json**: Nuevo subagent `event-bus`.
+
+**Archivos**: 8 modificados, +218−25 líneas.
+
+---
+
 ## 2026-07-09 — Sandbox/Testnet Binance support (public API)
 
 **Decision**: Agregar soporte para Binance Testnet (testnet.binance.vision) en
