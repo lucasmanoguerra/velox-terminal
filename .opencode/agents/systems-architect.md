@@ -34,6 +34,20 @@ no trait objects. Documentar cada excepción con `// HEXAGONAL-EXEMPT: razón`.
   - Ports: traits en crates de dominio o en `crates/velox-broker`
   - Adapters: `crates/velox-exchange`, `crates/velox-broker-fix`, `crates/velox-chart`, etc.
   - Composition: `crates/velox-terminal`
+- **Event Bus**: Diseñar la arquitectura de un bus de eventos central (pub/sub) para comunicación desacoplada entre módulos:
+  - `tokio::sync::broadcast` para eventos asíncronos (market data, order updates, fills, errores)
+  - `crossbeam::channel` para canales síncronos entre threads de hot path
+  - Eventos tipados con enum de Rust (`enum AppEvent { MarketTick(Tick), OrderUpdate(Order), ... }`)
+  - Bus accesible desde cualquier adapter, domain core escucha eventos relevantes via traits
+- **Backpressure**: Definir la estrategia de contrapresión para cada pipeline de datos:
+  - Canales acotados (`tokio::sync::mpsc::channel` con capacidad finita) en lugar de unbounded
+  - Política de drop: ticks viejos se descartan, velas no (velas son agregaciones)
+  - Batching: agrupar eventos pequeños en lotes para amortiguar overhead (ej. `pop_n` en ring buffer)
+- **Allocator Strategy**: Definir política de asignadores de memoria:
+  - Adapters (ReleaseFast): `mimalloc` para throughput, reducción de fragmentación
+  - Domain core (ReleaseSafe): allocator del sistema (comportamiento predecible)
+  - Hot paths: buffers pre-asignados, evitar allocs en el loop de ticks
+- **Zero-copy**: Donde sea posible, usar `bytes::Bytes` para buffers inmutables compartidos entre threads, `bytemuck`/`zerocopy` para interpretar bytes como structs sin copia.
 - **Concurrencia**: Decidir el modelo por subsistema respetando el hexágono:
   - tokio async para adapters de red (feeds, brokers)
   - crossbeam channels para hot paths entre adapter y domain (ring buffer de ticks)

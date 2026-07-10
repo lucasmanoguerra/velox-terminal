@@ -13,9 +13,11 @@ en Rust, con renderizado GPU vía wgpu, UI en egui y texto vía glyphon.
 - **UI**: egui (immediate-mode) sobre wgpu
 - **Async**: tokio para I/O de red
 - **Concurrencia**: crossbeam para canales lock-free en hot paths
-- **Serialización**: rkyv/bincode para IPC, bytemuck para zero-copy
-- **Testing**: proptest (property-based), criterion (benchmarks)
+- **Serialización**: rkyv/bincode para IPC, bytemuck/bytes/zerocopy para zero-copy
+- **Testing**: proptest (property-based), criterion (benchmarks), cargo-fuzz (fuzzing)
 - **CI/CD**: GitHub Actions, compilación cruzada con cargo-cross
+- **Allocator**: mimalloc para adapters (ReleaseFast), sistema para domain core (ReleaseSafe)
+- **Profiling**: perf + cargo flamegraph + Tracy para latencia end-to-end
 
 ## Arquitectura: Hexagonal (Ports & Adapters) + UNIX Philosophy
 
@@ -43,6 +45,9 @@ no trait objects. El rendimiento es prioridad en estas rutas.
 - Concurrencia, modelo de threads, tokio vs crossbeam → `systems-architect`
 - ADRs de arquitectura, compliance hexagonal → `systems-architect`
 - Port/adapter boundaries, dependency inversion → `systems-architect`
+- **Event Bus**: Sistema pub/sub central para desacoplar módulos → `event-bus`
+- **Backpressure**: Estrategia de contrapresión en pipelines de datos → `systems-architect`, `market-data-feed`
+- **Allocator**: Política de asignadores de memoria por perfil (mimalloc en adapters, system en domain) → `systems-architect`
 
 ### Producto y alcance
 - Features del MVP, comparativa con NinjaTrader/ATAS/TradingView → `product-financiero`
@@ -90,7 +95,10 @@ no trait objects. El rendimiento es prioridad en estas rutas.
 ### Calidad y seguridad
 - Tests de OMS/Risk/P&L con proptest → `qa-financiero`
 - Property-based testing obligatorio en domain core → `qa-financiero`
-- Profiling de latencia, benchmarks → `performance`
+- Fuzzing de parsers de datos externos → `qa-financiero`
+- Profiling de latencia, benchmarks criterion → `performance`
+- Allocator strategy (mimalloc vs system) → `systems-architect`, `performance`
+- Zero-copy en hot paths con bytes/zerocopy → `market-data-feed`, `performance`
 - Seguridad de credenciales, cargo-audit → `seguridad`
 - Compliance (MiFID II, SEC) → `compliance`
 
@@ -101,6 +109,11 @@ no trait objects. El rendimiento es prioridad en estas rutas.
 - Observabilidad, tracing, crash reporting → `sre-observability`
 - Mantenimiento de dependencias → `dependency-maint`
 - Triage de bugs → `soporte-triage`
+
+### Mensajería y eventos
+- Event Bus pub/sub central para desacoplar módulos → `event-bus`
+- Canales acotados, backpressure, política de drop → `event-bus`, `systems-architect`
+- Bridge entre hot path (ring buffer) y event bus → `event-bus`, `market-data-feed`
 
 ## Git Workflow
 
@@ -122,6 +135,11 @@ Después de cada implementación o modificación completada:
 8. **Preguntar**: Si los requisitos no son claros, haz la mínima pregunta aclaratoria antes de delegar.
 9. **gh CLI**: Usa `gh` para issues, PRs, checks. Siempre verifica CI antes de mergear.
 10. **Files < 200 líneas**: Preferí archivos pequeños (sin contar imports). Si un archivo crece, dividilo.
+11. **Backpressure**: Todo pipeline de datos debe tener backpressure explícito (canales acotados, política de drop). Nunca canales unbounded sin límite.
+12. **Zero-copy**: En hot paths de datos de mercado, usar `bytes::Bytes` para buffers compartidos y `zerocopy`/`bytemuck` para parsing sin copia.
+13. **Profiling primero**: Toda optimización debe estar respaldada por datos de profiling (criterion, perf, flamegraph). No optimizar sin medir.
+14. **Event Bus**: Módulos no deben acoplarse directamente. Usar event bus (`tokio::sync::broadcast`) para comunicación desacoplada.
+15. **Fuzzing**: Todo parser de datos externos (mensajes FIX, JSON de exchange, WebSocket) debe tener tests de fuzzing.
 
 ## Mapa de dependencias críticas (hexagonal)
 

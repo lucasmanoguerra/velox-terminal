@@ -111,6 +111,10 @@
       "description": "Soporte técnico y triage de bugs. Clasificación por severidad, reproducción con mínimo caso posible, detección de patrones sistémicos.",
       "mode": "subagent",
       "permission": { "edit": "deny", "bash": "ask" }
+    },
+    "event-bus": {
+      "description": "Event Bus y mensajería interna. Sistema pub/sub central para comunicación desacoplada entre módulos, canales acotados con backpressure, manejo de eventos asíncronos.",
+      "mode": "subagent"
     }
   }
 }
